@@ -18,6 +18,40 @@
             border: 1px solid lightgray;
             background-color: #f8f9fa;
         }
+        
+        /* 节点悬停提示框样式 */
+        .node-tooltip {
+            background-color: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            max-width: 250px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+            z-index: 9999;
+        }
+        
+        .tooltip-header {
+            font-weight: bold;
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: #ffd700;
+            border-bottom: 1px solid #444;
+            padding-bottom: 4px;
+        }
+        
+        .tooltip-content {
+            line-height: 1.4;
+        }
+        
+        .tooltip-content div {
+            margin-bottom: 3px;
+        }
+        
+        .tooltip-content strong {
+            color: #87ceeb;
+        }
     </style>
 </head>
 <body>
@@ -75,6 +109,15 @@
                                     <select class="form-select" id="level-select">
                                         <option value="device" selected>设备级</option>
                                         <option value="port">端口级</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- 布局类型选择（仅在端口级时显示） -->
+                                <div class="col-md-3 mb-3" id="layout-type-container" style="display: none;">
+                                    <label for="layout-type-select" class="form-label">布局类型</label>
+                                    <select class="form-select" id="layout-type-select">
+                                        <option value="standard" selected>标准布局</option>
+                                        <option value="bus">总线式布局</option>
                                     </select>
                                 </div>
                                 
@@ -159,6 +202,8 @@
             const deviceSelect = document.getElementById('device-select');
             const container = document.getElementById('mynetwork');
             const levelSelect = document.getElementById('level-select');
+            const layoutTypeSelect = document.getElementById('layout-type-select');
+            const layoutTypeContainer = document.getElementById('layout-type-container');
             const stationSelect = document.getElementById('station-select');
             const deviceTypeSelect = document.getElementById('device-type-select');
             const connectionTypeSelect = document.getElementById('connection-type-select');
@@ -298,13 +343,20 @@
 
             // 获取当前筛选参数
             function getCurrentFilters() {
-                return {
+                const filters = {
                     level: levelSelect.value,
                     station: stationSelect.value || null,
                     device_type: deviceTypeSelect.value || null,
                     connection_type: connectionTypeSelect.value || null,
                     show_critical_only: criticalOnlyCheck.checked
                 };
+                
+                // 只有在端口级时才添加布局类型参数
+                if (levelSelect.value === 'port') {
+                    filters.layout_type = layoutTypeSelect.value;
+                }
+                
+                return filters;
             }
 
             // 构建API URL with 筛选参数
@@ -316,6 +368,7 @@
                 if (filters.device_type) params.append('device_type', filters.device_type);
                 if (filters.connection_type) params.append('connection_type', filters.connection_type);
                 if (filters.show_critical_only) params.append('show_critical_only', 'true');
+                if (filters.layout_type) params.append('layout_type', filters.layout_type);
                 
                 return `/graph_data/${deviceId}?${params.toString()}`;
             }
@@ -359,6 +412,48 @@
                             network.destroy();
                         }
                         
+                        // 根据布局类型调整配置
+                        const currentFilters = getCurrentFilters();
+                        if (currentFilters.level === 'port' && currentFilters.layout_type === 'bus') {
+                            // 总线式布局配置
+                            options.layout = {
+                                randomSeed: 2,
+                                improvedLayout: true,
+                                clusterThreshold: 150,
+                                hierarchical: {
+                                    enabled: true,
+                                    levelSeparation: 150,
+                                    nodeSpacing: 100,
+                                    treeSpacing: 200,
+                                    blockShifting: true,
+                                    edgeMinimization: true,
+                                    parentCentralization: true,
+                                    direction: 'LR',        // 左右布局
+                                    sortMethod: 'directed'   // 按连接方向排序
+                                }
+                            };
+                            
+                            // 调整物理引擎参数以适应总线布局
+                            options.physics.solver = 'hierarchicalRepulsion';
+                            options.physics.hierarchicalRepulsion = {
+                                centralGravity: 0.0,
+                                springLength: 100,
+                                springConstant: 0.01,
+                                nodeDistance: 120,
+                                damping: 0.09
+                            };
+                        } else {
+                            // 标准布局配置
+                            options.layout = {
+                                randomSeed: 2,
+                                improvedLayout: true,
+                                clusterThreshold: 150
+                            };
+                            
+                            // 恢复标准物理引擎参数
+                            options.physics.solver = 'repulsion';
+                        }
+                        
                         // 创建新的vis.Network实例，并传入容器、数据和配置
                         network = new vis.Network(container, graphData, options);
                         
@@ -369,6 +464,21 @@
                                 console.log('点击节点:', nodeId);
                                 // 这里可以添加节点点击事件处理逻辑
                             }
+                        });
+                        
+                        // 添加节点悬停事件监听
+                        network.on('hoverNode', function(params) {
+                            const nodeId = params.node;
+                            const node = graphData.nodes.get(nodeId);
+                            
+                            if (node && node.nodeType) {
+                                showNodeTooltip(node, params.pointer.DOM);
+                            }
+                        });
+                        
+                        // 鼠标离开节点时隐藏提示框
+                        network.on('blurNode', function(params) {
+                            hideNodeTooltip();
                         });
                         
                         // 优化拖动行为：拖动时临时启用物理引擎
@@ -445,6 +555,75 @@
                     return originalLabel;
                 }
             }
+            
+            // 显示节点悬停提示框
+            function showNodeTooltip(node, position) {
+                // 移除已存在的提示框
+                hideNodeTooltip();
+                
+                // 创建提示框元素
+                const tooltip = document.createElement('div');
+                tooltip.id = 'node-tooltip';
+                tooltip.className = 'node-tooltip';
+                
+                // 根据节点类型生成不同的提示内容
+                let tooltipContent = '';
+                
+                if (node.nodeType === 'bus') {
+                    // 总线节点提示信息
+                    tooltipContent = `
+                        <div class="tooltip-header">总线节点</div>
+                        <div class="tooltip-content">
+                            <div><strong>设备:</strong> ${node.deviceName || '未知'}</div>
+                            <div><strong>端口数量:</strong> ${node.portCount || 0}</div>
+                            <div><strong>电流方向:</strong> ${node.direction || '未知'}</div>
+                        </div>
+                    `;
+                } else if (node.nodeType === 'port') {
+                    // 端口节点提示信息
+                    tooltipContent = `
+                        <div class="tooltip-header">端口节点</div>
+                        <div class="tooltip-content">
+                            <div><strong>设备:</strong> ${node.deviceName || '未知'}</div>
+                            <div><strong>端口:</strong> ${node.portName || '未知'}</div>
+                            <div><strong>电流方向:</strong> ${node.direction || '未知'}</div>
+                            ${node.voltage ? `<div><strong>电压等级:</strong> ${node.voltage}</div>` : ''}
+                            ${node.current ? `<div><strong>额定电流:</strong> ${node.current}</div>` : ''}
+                        </div>
+                    `;
+                } else {
+                    // 设备节点提示信息
+                    tooltipContent = `
+                        <div class="tooltip-header">设备节点</div>
+                        <div class="tooltip-content">
+                            <div><strong>设备名称:</strong> ${node.label || '未知'}</div>
+                            <div><strong>设备类型:</strong> ${node.deviceType || '未知'}</div>
+                            <div><strong>站点:</strong> ${node.station || '未知'}</div>
+                        </div>
+                    `;
+                }
+                
+                tooltip.innerHTML = tooltipContent;
+                
+                // 设置提示框位置
+                tooltip.style.position = 'absolute';
+                tooltip.style.left = (position.x + 10) + 'px';
+                tooltip.style.top = (position.y - 10) + 'px';
+                tooltip.style.zIndex = '9999';
+                
+                // 添加到页面
+                document.body.appendChild(tooltip);
+            }
+            
+            // 隐藏节点悬停提示框
+            function hideNodeTooltip() {
+                const existingTooltip = document.getElementById('node-tooltip');
+                if (existingTooltip) {
+                    existingTooltip.remove();
+                }
+            }
+            
+
 
             // 根据设备类型获取节点样式
             function getNodeStyle(node) {
@@ -532,6 +711,27 @@
                     loadTopologyData(currentDeviceId);
                 }
             });
+            
+            // 显示级别变化时控制布局类型选择器的显示
+            levelSelect.addEventListener('change', function() {
+                if (this.value === 'port') {
+                    layoutTypeContainer.style.display = 'block';
+                } else {
+                    layoutTypeContainer.style.display = 'none';
+                }
+                
+                // 如果当前有选中的设备，重新加载拓扑图
+                if (currentDeviceId) {
+                    loadTopologyData(currentDeviceId);
+                }
+            });
+            
+            // 布局类型变化时重新加载拓扑图
+            layoutTypeSelect.addEventListener('change', function() {
+                if (currentDeviceId && levelSelect.value === 'port') {
+                    loadTopologyData(currentDeviceId);
+                }
+            });
 
             applyFiltersBtn.addEventListener('click', function() {
                 if (currentDeviceId) {
@@ -545,6 +745,13 @@
 
             // 初始化
             initializeFilterOptions();
+            
+            // 初始化布局类型选择器的显示状态
+            if (levelSelect.value === 'port') {
+                layoutTypeContainer.style.display = 'block';
+            } else {
+                layoutTypeContainer.style.display = 'none';
+            }
             
             // 检查是否有预选设备ID（从URL参数或模板变量）
             {% if selected_device_id %}
