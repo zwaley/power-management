@@ -2113,6 +2113,10 @@ async def get_graph_data(
                             # 标准布局：创建标准端口连接
                             port_edges = _create_port_edges(conn, "upstream")
                             edges.extend(port_edges)
+                            # 为连接的源设备创建端口节点（如果还没有创建）
+                            if source_device.id not in processed_ids:
+                                source_port_nodes = _create_port_nodes(source_device, db)
+                                nodes.extend(source_port_nodes)
                     else:
                         # 设备级连接
                         edge_data = {
@@ -2147,6 +2151,10 @@ async def get_graph_data(
                             # 标准布局：创建标准端口连接
                             port_edges = _create_port_edges(conn, "downstream")
                             edges.extend(port_edges)
+                            # 为连接的目标设备创建端口节点（如果还没有创建）
+                            if target_device.id not in processed_ids:
+                                target_port_nodes = _create_port_nodes(target_device, db)
+                                nodes.extend(target_port_nodes)
                     else:
                         # 设备级连接
                         edge_data = {
@@ -4107,6 +4115,7 @@ def _create_bus_topology_nodes(device: Device, db: Session) -> dict:
     bus_nodes = []
     port_nodes = []
     bus_port_edges = []
+    connected_device_ports = []  # 存储对端设备的端口节点
     
     try:
         # 1. 获取设备的所有端口信息
@@ -4115,21 +4124,63 @@ def _create_bus_topology_nodes(device: Device, db: Session) -> dict:
         # 2. 按电流方向分组端口
         port_groups = _group_ports_by_direction(device, device_ports)
         
-        # 3. 为每个方向创建总线节点和端口节点
+        # 3. 为每个方向创建总线节点和端口节点（支持按端口数量分组）
         for direction, ports in port_groups.items():
             if ports:  # 只有当该方向有端口时才创建总线
-                # 创建总线节点
-                bus_node = _create_bus_node(device, direction, ports)
-                bus_nodes.append(bus_node)
+                # 按端口数量分组，每10个端口一条总线
+                port_chunks = _split_ports_into_chunks(ports, max_ports_per_bus=10)
                 
-                # 创建端口节点并连接到总线
-                for port in ports:
-                    port_node = _create_port_node_for_bus(device, port, direction)
-                    port_nodes.append(port_node)
+                for chunk_index, port_chunk in enumerate(port_chunks):
+                    # 创建总线节点（如果有多条总线，添加编号）
+                    bus_suffix = f"_{chunk_index + 1}" if len(port_chunks) > 1 else ""
+                    bus_node = _create_bus_node(device, direction + bus_suffix, port_chunk)
+                    bus_nodes.append(bus_node)
                     
-                    # 创建总线到端口的连接
-                    bus_port_edge = _create_bus_to_port_edge(bus_node['id'], port_node['id'])
-                    bus_port_edges.append(bus_port_edge)
+                    # 创建端口节点并连接到总线
+                    for port in port_chunk:
+                        port_node = _create_port_node_for_bus(device, port, direction, db)
+                        port_nodes.append(port_node)
+                        
+                        # 创建总线到端口的连接
+                        bus_port_edge = _create_bus_to_port_edge(bus_node['id'], port_node['id'])
+                        bus_port_edges.append(bus_port_edge)
+                        
+                        # 为有连接的端口创建对端设备的简化端口节点
+                        if port.get('connected_device_id') and port.get('connection_id'):
+                            connected_port = _create_connected_device_port_node(device, port, db)
+                            if connected_port:
+                                connected_device_ports.append(connected_port)
+                                
+                                # 创建当前端口到对端端口的连接边
+                                port_to_port_edge = {
+                                    'id': f"port_conn_{port['connection_id']}_{port_node['id']}_{connected_port['id']}",
+                                    'type': 'port_connection',
+                                    'from': port_node['id'],
+                                    'to': connected_port['id'],
+                                    'arrows': 'to',
+                                    'label': port.get('connection_type', ''),
+                                    'color': {
+                                        'color': '#D32F2F',
+                                        'width': _get_connection_width_from_connection(
+                                            db.query(Connection).filter(Connection.id == port['connection_id']).first()
+                                        ) if port.get('connection_id') else 2
+                                    },
+                                    'smooth': {
+                                        'enabled': True,
+                                        'type': 'continuous'
+                                    }
+                                }
+                                bus_port_edges.append(port_to_port_edge)
+        
+        # 将对端设备端口节点添加到结果中（去重处理）
+        # 使用字典去重，避免同一个对端端口被重复添加
+        unique_connected_ports = {}
+        for connected_port in connected_device_ports:
+            port_id = connected_port['id']
+            if port_id not in unique_connected_ports:
+                unique_connected_ports[port_id] = connected_port
+        
+        port_nodes.extend(unique_connected_ports.values())
         
         return {
             'bus_nodes': bus_nodes,
@@ -4149,18 +4200,29 @@ def _create_bus_topology_nodes(device: Device, db: Session) -> dict:
 
 
 def _extract_device_ports(device: Device, db: Session) -> list:
-    """提取设备的所有端口信息"""
+    """提取设备的所有端口信息，基于实际电流方向正确分类"""
     ports = []
     
-    # 从上游连接中提取端口
+    # 从作为目标设备的连接中提取端口
     for conn in device.target_connections:
+        # 根据upstream_downstream字段判断实际电流方向
+        # 对于选中设备作为target_device的连接：
+        # - 如果upstream_downstream为"上游"，说明电流从source流向target，选中设备接收电力（输入端口）
+        # - 如果upstream_downstream为"下游"，说明电流从target流向source，选中设备输出电力（输出端口）
+        actual_direction = _determine_actual_port_direction(
+            device.id, conn.source_device_id, conn.target_device_id, 
+            conn.upstream_downstream, 'target'
+        )
+        
         if conn.target_fuse_number:
             ports.append({
                 'name': conn.target_fuse_number,
                 'type': '熔断器',
                 'spec': conn.target_fuse_spec,
                 'connection_id': conn.id,
-                'direction': 'input'  # 作为目标设备，这是输入端口
+                'direction': actual_direction,
+                'connected_device_id': conn.source_device_id,
+                'upstream_downstream': conn.upstream_downstream
             })
         if conn.target_breaker_number:
             ports.append({
@@ -4168,18 +4230,30 @@ def _extract_device_ports(device: Device, db: Session) -> list:
                 'type': '断路器',
                 'spec': conn.target_breaker_spec,
                 'connection_id': conn.id,
-                'direction': 'input'
+                'direction': actual_direction,
+                'connected_device_id': conn.source_device_id,
+                'upstream_downstream': conn.upstream_downstream
             })
     
-    # 从下游连接中提取端口
+    # 从作为源设备的连接中提取端口
     for conn in device.source_connections:
+        # 对于选中设备作为source_device的连接：
+        # - 如果upstream_downstream为"上游"，说明电流从source流向target，选中设备输出电力（输出端口）
+        # - 如果upstream_downstream为"下游"，说明电流从target流向source，选中设备接收电力（输入端口）
+        actual_direction = _determine_actual_port_direction(
+            device.id, conn.source_device_id, conn.target_device_id, 
+            conn.upstream_downstream, 'source'
+        )
+        
         if conn.source_fuse_number:
             ports.append({
                 'name': conn.source_fuse_number,
                 'type': '熔断器',
                 'spec': conn.source_fuse_spec,
                 'connection_id': conn.id,
-                'direction': 'output'  # 作为源设备，这是输出端口
+                'direction': actual_direction,
+                'connected_device_id': conn.target_device_id,
+                'upstream_downstream': conn.upstream_downstream
             })
         if conn.source_breaker_number:
             ports.append({
@@ -4187,14 +4261,16 @@ def _extract_device_ports(device: Device, db: Session) -> list:
                 'type': '断路器',
                 'spec': conn.source_breaker_spec,
                 'connection_id': conn.id,
-                'direction': 'output'
+                'direction': actual_direction,
+                'connected_device_id': conn.target_device_id,
+                'upstream_downstream': conn.upstream_downstream
             })
     
     return ports
 
 
 def _group_ports_by_direction(device: Device, ports: list) -> dict:
-    """按电流方向分组端口"""
+    """按实际电流方向分组端口（基于连接关系和upstream_downstream字段）"""
     groups = {
         'input': [],
         'output': [],
@@ -4202,12 +4278,54 @@ def _group_ports_by_direction(device: Device, ports: list) -> dict:
     }
     
     for port in ports:
-        # 基于设备类型和端口名称进行更精确的方向判断
-        direction = _determine_port_direction(device.device_type, port['name'], port.get('direction', 'bidirectional'))
+        # 使用基于实际连接关系的方向判断，而不是基于设备类型和端口名称的推测
+        direction = port.get('direction', 'bidirectional')
+        
+        # 如果方向仍然不明确，则使用设备类型和端口名称作为备用判断
+        if direction == 'bidirectional':
+            direction = _determine_port_direction(device.device_type, port['name'], 'bidirectional')
+        
         groups[direction].append(port)
     
     return groups
 
+
+def _determine_actual_port_direction(selected_device_id: int, source_device_id: int, target_device_id: int, upstream_downstream: str, device_role: str) -> str:
+    """基于upstream_downstream字段和设备角色确定端口的实际电流方向
+    
+    Args:
+        selected_device_id: 用户选中查看的设备ID
+        source_device_id: 连接中的源设备ID
+        target_device_id: 连接中的目标设备ID
+        upstream_downstream: 连接的上下游关系（"上游"或"下游"）
+        device_role: 选中设备在此连接中的角色（"source"或"target"）
+    
+    Returns:
+        str: 端口方向（"input"、"output"或"bidirectional"）
+    """
+    if not upstream_downstream:
+        return 'bidirectional'
+    
+    # 根据upstream_downstream字段和设备角色判断电流方向
+    if upstream_downstream == "上游":
+        # 上游关系：电流从source设备流向target设备
+        if device_role == 'source':
+            # 选中设备是源设备，输出电力
+            return 'output'
+        else:  # device_role == 'target'
+            # 选中设备是目标设备，接收电力
+            return 'input'
+    elif upstream_downstream == "下游":
+        # 下游关系：电流从target设备流向source设备
+        if device_role == 'source':
+            # 选中设备是源设备，但电流方向相反，所以接收电力
+            return 'input'
+        else:  # device_role == 'target'
+            # 选中设备是目标设备，但电流方向相反，所以输出电力
+            return 'output'
+    else:
+        # 未知的upstream_downstream值，使用备用判断
+        return 'bidirectional'
 
 def _determine_port_direction(device_type: str, port_name: str, default_direction: str) -> str:
     """判断端口的电流方向"""
@@ -4309,8 +4427,162 @@ def _create_bus_node(device: Device, direction: str, ports: list) -> dict:
     }
 
 
-def _create_port_node_for_bus(device: Device, port: dict, direction: str) -> dict:
-    """为总线式布局创建端口节点"""
+def _split_ports_into_chunks(ports: list, max_ports_per_bus: int = 10) -> list:
+    """
+    将端口列表按指定数量分组，每组创建一条总线
+    
+    Args:
+        ports: 端口列表
+        max_ports_per_bus: 每条总线最大端口数，默认10个
+    
+    Returns:
+        list: 分组后的端口列表，每个元素是一个端口组
+    """
+    if not ports:
+        return []
+    
+    # 将端口列表按指定数量分组
+    chunks = []
+    for i in range(0, len(ports), max_ports_per_bus):
+        chunk = ports[i:i + max_ports_per_bus]
+        chunks.append(chunk)
+    
+    return chunks
+
+
+def _create_connected_device_node(device: Device, port: dict, db: Session) -> dict:
+    """为总线式布局创建对端设备节点"""
+    if not port.get('connected_device_id'):
+        return None
+        
+    connected_device = db.query(Device).filter(Device.id == port['connected_device_id']).first()
+    if not connected_device:
+        return None
+    
+    # 设备类型颜色映射
+    device_colors = {
+        '发电机组': '#4CAF50',
+        'UPS': '#2196F3', 
+        '变压器': '#FF9800',
+        '配电柜': '#9C27B0',
+        '开关柜': '#795548',
+        '电池组': '#607D8B'
+    }
+    
+    base_color = device_colors.get(connected_device.device_type, '#757575')
+    
+    return {
+        'id': f"connected_device_{connected_device.id}_from_{device.id}_{port['name']}",
+        'type': 'connected_device',
+        'label': connected_device.name,
+        'title': f"对端设备: {connected_device.name}\n类型: {connected_device.device_type}\n站点: {connected_device.station}\n型号: {connected_device.model or 'N/A'}",
+        'device_id': connected_device.id,
+        'device_name': connected_device.name,
+        'device_type': connected_device.device_type,
+        'station': connected_device.station,
+        'model': connected_device.model,
+        'shape': 'box',
+        'size': 30,
+        'color': {
+            'background': base_color,
+            'border': '#424242',
+            'highlight': {
+                'background': _adjust_color_brightness(base_color, 1.2),
+                'border': '#212121'
+            }
+        },
+        'font': {
+            'size': 12,
+            'color': '#FFFFFF'
+        }
+    }
+
+def _create_connected_device_port_node(device: Device, port: dict, db: Session) -> dict:
+    """为总线式布局创建对端设备的简化端口节点"""
+    if not port.get('connected_device_id') or not port.get('connection_id'):
+        return None
+    
+    try:
+        # 获取对端设备信息
+        connected_device = db.query(Device).filter(Device.id == port['connected_device_id']).first()
+        if not connected_device:
+            return None
+        
+        # 获取连接信息
+        connection = db.query(Connection).filter(Connection.id == port['connection_id']).first()
+        if not connection:
+            return None
+        
+        # 确定对端端口信息
+        connected_port_name = "未知端口"
+        connected_port_type = "未知"
+        
+        if connection.source_device_id == device.id:
+            # 当前设备是源设备，对端是目标设备的端口
+            if connection.target_fuse_number:
+                connected_port_name = f"熔断器-{connection.target_fuse_number}"
+                connected_port_type = "熔断器"
+            elif connection.target_breaker_number:
+                connected_port_name = f"断路器-{connection.target_breaker_number}"
+                connected_port_type = "断路器"
+        else:
+            # 当前设备是目标设备，对端是源设备的端口
+            if connection.source_fuse_number:
+                connected_port_name = f"熔断器-{connection.source_fuse_number}"
+                connected_port_type = "熔断器"
+            elif connection.source_breaker_number:
+                connected_port_name = f"断路器-{connection.source_breaker_number}"
+                connected_port_type = "断路器"
+        
+        # 端口颜色配置
+        port_colors = {
+            '熔断器': '#FF9800',  # 橙色
+            '断路器': '#4CAF50',  # 绿色
+            '接触器': '#2196F3',  # 蓝色
+            '开关': '#9C27B0'     # 紫色
+        }
+        
+        base_color = port_colors.get(connected_port_type, '#757575')
+        
+        return {
+            'id': f"connected_port_{connected_device.id}_{connected_port_name.replace('-', '_')}",
+            'type': 'connected_port',
+            'label': connected_port_name,
+            'title': f"{connected_device.name} - {connected_port_name}\n设备类型: {connected_device.device_type or 'N/A'}\n连接到: {device.name} - {port['name']}",
+            'device_id': connected_device.id,
+            'device_name': connected_device.name,
+            'device_type': connected_device.device_type,
+            'port_name': connected_port_name,
+            'port_type': connected_port_type,
+            'connection_id': connection.id,
+            'source_device_id': device.id,
+            'source_port_name': port['name'],
+            'shape': 'circle',
+            'size': 20,
+            'color': {
+                'background': base_color,
+                'border': '#424242',
+                'highlight': {
+                    'background': _adjust_color_brightness(base_color, 1.2),
+                    'border': '#212121'
+                }
+            },
+            'font': {
+                'size': 9,
+                'color': '#212121'
+            },
+            # 设置位置，使其显示在图的右侧
+            'x': 300,  # 相对于查询设备的右侧位置
+            'y': 0     # 垂直居中
+        }
+        
+    except Exception as e:
+        print(f"创建对端设备端口节点失败: {str(e)}")
+        return None
+
+
+def _create_port_node_for_bus(device: Device, port: dict, direction: str, db: Session) -> dict:
+    """为总线式布局创建端口节点，包含对端设备信息"""
     port_colors = {
         '熔断器': '#FF9800',  # 橙色
         '断路器': '#4CAF50',  # 绿色
@@ -4320,11 +4592,37 @@ def _create_port_node_for_bus(device: Device, port: dict, direction: str) -> dic
     
     base_color = port_colors.get(port['type'], '#757575')
     
+    # 获取对端设备信息
+    connected_device_info = "未连接"
+    connected_port_info = "N/A"
+    if port.get('connected_device_id'):
+        connected_device = db.query(Device).filter(Device.id == port['connected_device_id']).first()
+        if connected_device:
+            connected_device_info = f"{connected_device.name} ({connected_device.device_type})"
+            
+            # 获取对端端口信息
+            if port.get('connection_id'):
+                connection = db.query(Connection).filter(Connection.id == port['connection_id']).first()
+                if connection:
+                    # 根据当前设备在连接中的角色确定对端端口
+                    if connection.source_device_id == device.id:
+                        # 当前设备是源设备，对端是目标设备的端口
+                        if connection.target_fuse_number:
+                            connected_port_info = f"熔断器-{connection.target_fuse_number}"
+                        elif connection.target_breaker_number:
+                            connected_port_info = f"断路器-{connection.target_breaker_number}"
+                    else:
+                        # 当前设备是目标设备，对端是源设备的端口
+                        if connection.source_fuse_number:
+                            connected_port_info = f"熔断器-{connection.source_fuse_number}"
+                        elif connection.source_breaker_number:
+                            connected_port_info = f"断路器-{connection.source_breaker_number}"
+    
     return {
         'id': f"port_{device.id}_{port['name']}",
         'type': 'port',
         'label': port['name'],
-        'title': f"{device.name} - {port['name']}\n类型: {port['type']}\n规格: {port.get('spec', 'N/A')}\n方向: {direction}",
+        'title': f"{device.name} - {port['name']}\n类型: {port['type']}\n规格: {port.get('spec', 'N/A')}\n方向: {direction}\n连接到: {connected_device_info}\n对端端口: {connected_port_info}",
         'device_id': device.id,
         'device_name': device.name,
         'device_type': device.device_type,
@@ -4334,6 +4632,9 @@ def _create_port_node_for_bus(device: Device, port: dict, direction: str) -> dic
         'direction': direction,
         'parent_bus': f"bus_{device.id}_{direction}",
         'connection_id': port.get('connection_id'),
+        'connected_device_id': port.get('connected_device_id'),
+        'connected_device_info': connected_device_info,
+        'connected_port_info': connected_port_info,
         'shape': 'circle',
         'size': 25,
         'color': {
@@ -4413,7 +4714,7 @@ def _create_bus_port_edges(connection, direction: str) -> list:
                         'cable_type': connection.cable_type,
                         'color': {
                             'color': _get_connection_color(connection.connection_type),
-                            'width': _get_connection_width(connection.voltage_level),
+                            'width': _get_connection_width_from_connection(connection),
                             'highlight': _get_connection_highlight_color(connection.connection_type)
                         },
                         'smooth': {
@@ -4457,7 +4758,7 @@ def _create_bus_port_edges(connection, direction: str) -> list:
                         'cable_type': connection.cable_type,
                         'color': {
                             'color': _get_connection_color(connection.connection_type),
-                            'width': _get_connection_width(connection.voltage_level),
+                            'width': _get_connection_width_from_connection(connection),
                             'highlight': _get_connection_highlight_color(connection.connection_type)
                         },
                         'smooth': {
@@ -4486,8 +4787,56 @@ def _get_connection_color(connection_type: str) -> str:
     return colors.get(connection_type, '#424242')
 
 
+def _get_connection_width_from_connection(connection) -> int:
+    """从连接对象推导电压等级并获取连线宽度"""
+    try:
+        # 尝试从额定电流推导电压等级
+        rated_current = None
+        
+        # 优先使用数值型的rated_current字段
+        if hasattr(connection, 'rated_current') and connection.rated_current:
+            rated_current = float(connection.rated_current)
+        # 其次尝试从A端额定电流解析
+        elif hasattr(connection, 'a_rated_current') and connection.a_rated_current:
+            # 提取数字部分，如"63A" -> 63
+            import re
+            match = re.search(r'(\d+(?:\.\d+)?)', str(connection.a_rated_current))
+            if match:
+                rated_current = float(match.group(1))
+        # 最后尝试从B端额定电流解析
+        elif hasattr(connection, 'b_rated_current') and connection.b_rated_current:
+            import re
+            match = re.search(r'(\d+(?:\.\d+)?)', str(connection.b_rated_current))
+            if match:
+                rated_current = float(match.group(1))
+        
+        # 根据额定电流推导电压等级和线宽
+        if rated_current:
+            if rated_current >= 1000:      # 大电流，可能是高压
+                return 4
+            elif rated_current >= 100:     # 中等电流，可能是中压
+                return 3
+            else:                          # 小电流，低压
+                return 2
+        
+        # 如果无法从电流推导，尝试从连接类型推导
+        if hasattr(connection, 'connection_type') and connection.connection_type:
+            connection_type = connection.connection_type.lower()
+            if 'high' in connection_type or '高压' in connection_type:
+                return 4
+            elif 'medium' in connection_type or '中压' in connection_type:
+                return 3
+        
+        # 默认返回低压线宽
+        return 2
+        
+    except Exception as e:
+        print(f"推导连线宽度失败: {str(e)}")
+        return 2
+
+
 def _get_connection_width(voltage_level) -> int:
-    """根据电压等级获取连线宽度"""
+    """根据电压等级获取连线宽度（保留原函数以兼容其他调用）"""
     if voltage_level is None:
         return 2
     
