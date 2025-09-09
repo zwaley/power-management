@@ -159,6 +159,14 @@
                                         </label>
                                     </div>
                                 </div>
+
+                                <!-- 仅A端视图（仅端口级+总线式时显示） -->
+                                <div class="col-md-4 mb-3" id="only-selected-device-container" style="display: none;">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="only-selected-device-check" checked>
+                                        <label class="form-check-label" for="only-selected-device-check">仅显示选中设备端口（A端视图）</label>
+                                    </div>
+                                </div>
                                 
                                 <!-- 应用筛选按钮 -->
                                 <div class="col-md-4 mb-3">
@@ -211,6 +219,9 @@
             const applyFiltersBtn = document.getElementById('apply-filters-btn');
             const resetFiltersBtn = document.getElementById('reset-filters-btn');
             const fullscreenBtn = document.getElementById('fullscreen-btn');
+            // 仅A端视图元素
+            const onlySelectedDeviceContainer = document.getElementById('only-selected-device-container');
+            const onlySelectedDeviceCheck = document.getElementById('only-selected-device-check');
             
             let network = null;
             let currentDeviceId = null;
@@ -311,30 +322,39 @@
                 // 加载筛选选项数据
                 fetch('/api/topology/filter-options')
                     .then(response => response.json())
-                    .then(data => {
+                    .then(response => {
+                        // 检查API响应格式
+                        const data = response.data || response;
+                        
                         // 填充站点选项
-                        data.stations.forEach(station => {
-                            const option = document.createElement('option');
-                            option.value = station;
-                            option.textContent = station;
-                            stationSelect.appendChild(option);
-                        });
+                        if (data.stations) {
+                            data.stations.forEach(station => {
+                                const option = document.createElement('option');
+                                option.value = station;
+                                option.textContent = station;
+                                stationSelect.appendChild(option);
+                            });
+                        }
                         
                         // 填充设备类型选项
-                        data.device_types.forEach(deviceType => {
-                            const option = document.createElement('option');
-                            option.value = deviceType;
-                            option.textContent = deviceType;
-                            deviceTypeSelect.appendChild(option);
-                        });
+                        if (data.device_types) {
+                            data.device_types.forEach(deviceType => {
+                                const option = document.createElement('option');
+                                option.value = deviceType;
+                                option.textContent = deviceType;
+                                deviceTypeSelect.appendChild(option);
+                            });
+                        }
                         
                         // 填充连接类型选项
-                        data.connection_types.forEach(connectionType => {
-                            const option = document.createElement('option');
-                            option.value = connectionType;
-                            option.textContent = connectionType;
-                            connectionTypeSelect.appendChild(option);
-                        });
+                        if (data.connection_types) {
+                            data.connection_types.forEach(connectionType => {
+                                const option = document.createElement('option');
+                                option.value = connectionType;
+                                option.textContent = connectionType;
+                                connectionTypeSelect.appendChild(option);
+                            });
+                        }
                     })
                     .catch(error => {
                         console.error('加载筛选选项失败:', error);
@@ -354,6 +374,10 @@
                 // 只有在端口级时才添加布局类型参数
                 if (levelSelect.value === 'port') {
                     filters.layout_type = layoutTypeSelect.value;
+                    // 端口级+总线式布局时附加仅A端视图参数
+                    if (layoutTypeSelect.value === 'bus') {
+                        filters.only_selected_device = !!onlySelectedDeviceCheck?.checked;
+                    }
                 }
                 
                 return filters;
@@ -369,6 +393,10 @@
                 if (filters.connection_type) params.append('connection_type', filters.connection_type);
                 if (filters.show_critical_only) params.append('show_critical_only', 'true');
                 if (filters.layout_type) params.append('layout_type', filters.layout_type);
+                // 若存在仅A端视图参数，则传递
+                if (typeof filters.only_selected_device !== 'undefined') {
+                    params.append('only_selected_device', filters.only_selected_device ? 'true' : 'false');
+                }
                 
                 return `/graph_data/${deviceId}?${params.toString()}`;
             }
@@ -391,7 +419,15 @@
                         }
                         return response.json();
                     })
-                    .then(data => {
+                    .then(response => {
+                        // 检查API响应格式，兼容不同的返回结构
+                        const data = response.data || response;
+                        
+                        // 验证数据完整性
+                        if (!data.nodes || !data.edges) {
+                            throw new Error('API返回的数据格式不正确，缺少nodes或edges字段');
+                        }
+                        
                         // 应用节点样式和格式化标签
                         const styledNodes = data.nodes.map(node => {
                             return {
@@ -686,6 +722,13 @@
                 deviceTypeSelect.value = '';
                 connectionTypeSelect.value = '';
                 criticalOnlyCheck.checked = false;
+                // 复位仅A端视图：默认选中，但仅当端口级+总线布局时对后端生效
+                if (onlySelectedDeviceCheck) {
+                    onlySelectedDeviceCheck.checked = true;
+                }
+                // 重置显隐：恢复到设备级，隐藏布局与A端开关
+                layoutTypeContainer.style.display = 'none';
+                onlySelectedDeviceContainer.style.display = 'none';
                 
                 // 如果有选中的设备，重新加载数据
                 if (currentDeviceId) {
@@ -716,8 +759,15 @@
             levelSelect.addEventListener('change', function() {
                 if (this.value === 'port') {
                     layoutTypeContainer.style.display = 'block';
+                    // 端口级：根据布局类型决定是否展示A端视图开关
+                    if (layoutTypeSelect.value === 'bus') {
+                        onlySelectedDeviceContainer.style.display = 'block';
+                    } else {
+                        onlySelectedDeviceContainer.style.display = 'none';
+                    }
                 } else {
                     layoutTypeContainer.style.display = 'none';
+                    onlySelectedDeviceContainer.style.display = 'none';
                 }
                 
                 // 如果当前有选中的设备，重新加载拓扑图
@@ -728,6 +778,15 @@
             
             // 布局类型变化时重新加载拓扑图
             layoutTypeSelect.addEventListener('change', function() {
+                // 布局类型变化时，联动仅A端视图开关可见性
+                if (levelSelect.value === 'port') {
+                    if (this.value === 'bus') {
+                        onlySelectedDeviceContainer.style.display = 'block';
+                    } else {
+                        onlySelectedDeviceContainer.style.display = 'none';
+                    }
+                }
+                
                 if (currentDeviceId && levelSelect.value === 'port') {
                     loadTopologyData(currentDeviceId);
                 }
@@ -738,6 +797,15 @@
                     loadTopologyData(currentDeviceId);
                 }
             });
+
+            // 仅A端视图开关变化时，若处于端口级+总线式，立即重新加载
+            if (onlySelectedDeviceCheck) {
+                onlySelectedDeviceCheck.addEventListener('change', function() {
+                    if (currentDeviceId && levelSelect.value === 'port' && layoutTypeSelect.value === 'bus') {
+                        loadTopologyData(currentDeviceId);
+                    }
+                });
+            }
 
             resetFiltersBtn.addEventListener('click', resetFilters);
             
