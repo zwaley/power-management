@@ -167,6 +167,13 @@
                                         <label class="form-check-label" for="only-selected-device-check">仅显示选中设备端口（A端视图）</label>
                                     </div>
                                 </div>
+
+                                <!-- 总线分组大小（仅端口级+总线式时显示） -->
+                                <div class="col-md-4 mb-3" id="group-size-container" style="display: none;">
+                                    <label for="group-size-input" class="form-label">总线分组大小</label>
+                                    <input type="number" class="form-control" id="group-size-input" value="12" min="1" max="100" step="1">
+                                    <div class="form-text">范围 1-100，默认 12</div>
+                                </div>
                                 
                                 <!-- 应用筛选按钮 -->
                                 <div class="col-md-4 mb-3">
@@ -222,6 +229,8 @@
             // 仅A端视图元素
             const onlySelectedDeviceContainer = document.getElementById('only-selected-device-container');
             const onlySelectedDeviceCheck = document.getElementById('only-selected-device-check');
+            const groupSizeContainer = document.getElementById('group-size-container');
+            const groupSizeInput = document.getElementById('group-size-input');
             
             let network = null;
             let currentDeviceId = null;
@@ -377,6 +386,14 @@
                     // 端口级+总线式布局时附加仅A端视图参数
                     if (layoutTypeSelect.value === 'bus') {
                         filters.only_selected_device = !!onlySelectedDeviceCheck?.checked;
+                        // 读取并校验 group_size，范围 1-100，默认 12
+                        if (groupSizeInput) {
+                            let gs = parseInt(groupSizeInput.value, 10);
+                            if (isNaN(gs)) gs = 12;
+                            if (gs < 1) gs = 1;
+                            if (gs > 100) gs = 100;
+                            filters.group_size = gs;
+                        }
                     }
                 }
                 
@@ -396,6 +413,10 @@
                 // 若存在仅A端视图参数，则传递
                 if (typeof filters.only_selected_device !== 'undefined') {
                     params.append('only_selected_device', filters.only_selected_device ? 'true' : 'false');
+                }
+                // 若存在 group_size，则传递
+                if (typeof filters.group_size !== 'undefined') {
+                    params.append('group_size', String(filters.group_size));
                 }
                 
                 return `/graph_data/${deviceId}?${params.toString()}`;
@@ -729,6 +750,10 @@
                 // 重置显隐：恢复到设备级，隐藏布局与A端开关
                 layoutTypeContainer.style.display = 'none';
                 onlySelectedDeviceContainer.style.display = 'none';
+                if (groupSizeContainer && groupSizeInput) {
+                    groupSizeContainer.style.display = 'none';
+                    groupSizeInput.value = '12';
+                }
                 
                 // 如果有选中的设备，重新加载数据
                 if (currentDeviceId) {
@@ -759,15 +784,24 @@
             levelSelect.addEventListener('change', function() {
                 if (this.value === 'port') {
                     layoutTypeContainer.style.display = 'block';
-                    // 端口级：根据布局类型决定是否展示A端视图开关
+                    // 端口级：根据布局类型决定是否展示A端视图开关和分组大小
                     if (layoutTypeSelect.value === 'bus') {
                         onlySelectedDeviceContainer.style.display = 'block';
+                        if (groupSizeContainer && groupSizeInput) {
+                            groupSizeContainer.style.display = 'block';
+                        }
                     } else {
                         onlySelectedDeviceContainer.style.display = 'none';
+                        if (groupSizeContainer) {
+                            groupSizeContainer.style.display = 'none';
+                        }
                     }
                 } else {
                     layoutTypeContainer.style.display = 'none';
                     onlySelectedDeviceContainer.style.display = 'none';
+                    if (groupSizeContainer) {
+                        groupSizeContainer.style.display = 'none';
+                    }
                 }
                 
                 // 如果当前有选中的设备，重新加载拓扑图
@@ -782,8 +816,16 @@
                 if (levelSelect.value === 'port') {
                     if (this.value === 'bus') {
                         onlySelectedDeviceContainer.style.display = 'block';
+                        if (groupSizeContainer && groupSizeInput) {
+                            groupSizeContainer.style.display = 'block';
+                            // 切换为总线式时重置到默认 12
+                            groupSizeInput.value = '12';
+                        }
                     } else {
                         onlySelectedDeviceContainer.style.display = 'none';
+                        if (groupSizeContainer) {
+                            groupSizeContainer.style.display = 'none';
+                        }
                     }
                 }
                 
@@ -803,6 +845,31 @@
                 onlySelectedDeviceCheck.addEventListener('change', function() {
                     if (currentDeviceId && levelSelect.value === 'port' && layoutTypeSelect.value === 'bus') {
                         loadTopologyData(currentDeviceId);
+                    }
+                });
+            }
+
+            // group_size 输入防护：失焦或回车时校验并在端口级+总线式时刷新
+            if (groupSizeInput) {
+                const clampGroupSize = function() {
+                    let gs = parseInt(groupSizeInput.value, 10);
+                    if (isNaN(gs)) gs = 12;
+                    if (gs < 1) gs = 1;
+                    if (gs > 100) gs = 100;
+                    groupSizeInput.value = String(gs);
+                };
+                groupSizeInput.addEventListener('blur', function() {
+                    clampGroupSize();
+                    if (currentDeviceId && levelSelect.value === 'port' && layoutTypeSelect.value === 'bus') {
+                        loadTopologyData(currentDeviceId);
+                    }
+                });
+                groupSizeInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        clampGroupSize();
+                        if (currentDeviceId && levelSelect.value === 'port' && layoutTypeSelect.value === 'bus') {
+                            loadTopologyData(currentDeviceId);
+                        }
                     }
                 });
             }
