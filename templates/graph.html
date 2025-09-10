@@ -489,8 +489,50 @@
                             network.destroy();
                         }
                         
+                        // 根据当前筛选参数动态调整布局与物理参数
+                        const layoutOptions = JSON.parse(JSON.stringify(options)); // 深拷贝，避免污染默认配置
+                        const isPortLevel = currentFilters.level === 'port';
+                        const isBusLayout = isPortLevel && currentFilters.layout_type === 'bus';
+
+                        if (isBusLayout) {
+                            // 端口级 + 总线式：采用分层布局，竖向总线，减少线条弯曲与重叠
+                            layoutOptions.layout.hierarchical.enabled = true;
+                            layoutOptions.layout.hierarchical.direction = 'UD'; // 上下分层，更贴近“总线”纵向展示
+                            layoutOptions.layout.hierarchical.levelSeparation = 140;
+                            layoutOptions.layout.hierarchical.nodeSpacing = 120;
+                            layoutOptions.layout.hierarchical.treeSpacing = 180;
+                            layoutOptions.layout.improvedLayout = true;
+
+                            layoutOptions.physics.enabled = true;
+                            layoutOptions.physics.solver = 'hierarchicalRepulsion';
+                            layoutOptions.physics.hierarchicalRepulsion = {
+                                centralGravity: 0.0,
+                                springLength: 120,
+                                springConstant: 0.01,
+                                nodeDistance: 160,
+                                damping: 0.18
+                            };
+                            // 总线场景下，线条尽量直线减少视觉拥挤
+                            layoutOptions.edges.smooth = false;
+                        } else {
+                            // 标准模式（设备级或端口级-标准）：采用 repulsion，使节点均匀分散，降低重叠
+                            layoutOptions.layout.hierarchical.enabled = false;
+                            layoutOptions.physics.enabled = true;
+                            layoutOptions.physics.solver = 'repulsion';
+                            layoutOptions.physics.maxVelocity = 10;
+                            layoutOptions.physics.minVelocity = 0.05;
+                            layoutOptions.physics.repulsion = { // vis-network 会读取该段作为 repulsion solver 的参数
+                                centralGravity: 0.0,
+                                springLength: 180,
+                                springConstant: 0.01,
+                                nodeDistance: 220,
+                                damping: 0.15
+                            };
+                            layoutOptions.edges.smooth = { type: 'cubicBezier' };
+                        }
+                        
                         // 创建新的 vis.Network 实例，并传入容器、数据和配置
-                        network = new vis.Network(container, graphData, options);
+                        network = new vis.Network(container, graphData, layoutOptions);
                         
                         // 添加网络事件监听
                         network.on('click', function(params) {
@@ -544,7 +586,7 @@
                                 // 短暂延迟后关闭物理引擎，防止自动重排
                                 setTimeout(() => {
                                     network.setOptions({physics: {enabled: false}});
-                                }, 100);
+                                }, 120);
                             }
                         });
                         
