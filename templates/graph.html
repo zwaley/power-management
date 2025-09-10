@@ -164,8 +164,9 @@
                                 <!-- 仅A端视图（仅端口级+总线式时显示） -->
                                 <div class="col-md-4 mb-3" id="only-selected-device-container" style="display: none;">
                                     <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="only-selected-device-check" checked>
-                                        <label class="form-check-label" for="only-selected-device-check">仅显示选中设备端口（A端视图）</label>
+-                                        <input class="form-check-input" type="checkbox" id="only-selected-device-check" checked>
++                                        <input class="form-check-input" type="checkbox" id="only-selected-device-check">
+                                         <label class="form-check-label" for="only-selected-device-check">仅显示选中设备端口（A端视图）</label>
                                     </div>
                                 </div>
 
@@ -290,7 +291,7 @@
                         minimum: 40
                     },
                     font: {
-                        size: 11,
+                        size: 14,
                         face: 'Arial',
                         multi: false,
                         align: 'center'
@@ -484,15 +485,59 @@
                             edges: new vis.DataSet(sanitizedEdges)
                         };
 
+                        // ========== 端口级 + 总线式：补充设备中心节点并连接所有总线节点 ==========
+                        const isPortLevel = currentFilters.level === 'port';
+                        const isBusLayout = isPortLevel && currentFilters.layout_type === 'bus';
+                        let centerDeviceNodeId = null;
+                        if (isBusLayout) {
+                            // 尝试判断是否已经存在设备类型节点
+                            const existingDeviceNodes = (styledNodes || []).filter(n => (n.nodeType === 'device') || (String(n.id) === String(currentDeviceId)));
+                            if (existingDeviceNodes.length > 0) {
+                                centerDeviceNodeId = String(existingDeviceNodes[0].id);
+                            } else {
+                                // 若不存在，则为当前选中设备创建一个中心节点，避免“总线”节点孤立
+                                centerDeviceNodeId = `device_center_${currentDeviceId}`;
+                                const selectedText = (deviceSelect && deviceSelect.options && deviceSelect.selectedIndex >= 0)
+                                    ? deviceSelect.options[deviceSelect.selectedIndex].text
+                                    : `设备 ${currentDeviceId}`;
+                                graphData.nodes.add({
+                                    id: centerDeviceNodeId,
+                                    label: formatNodeLabel(selectedText.replace(/\s*\(ID:.*\)$/i, '')),
+                                    nodeType: 'device',
+                                    deviceType: '设备',
+                                    ...getNodeStyle({ device_type: '' })
+                                });
+                            }
+                            // 将所有 bus 节点与中心设备节点连边，确保关系完整
+                            const allNodesNow = graphData.nodes.get();
+                            const busNodes = allNodesNow.filter(n => n.nodeType === 'bus');
+                            busNodes.forEach(bn => {
+                                // 若不存在从/到中心设备的连边，则新增一条
+                                const exists = graphData.edges.get({
+                                    filter: (e) => (String(e.from) === centerDeviceNodeId && String(e.to) === String(bn.id)) || (String(e.to) === centerDeviceNodeId && String(e.from) === String(bn.id))
+                                });
+                                if (!exists || exists.length === 0) {
+                                    graphData.edges.add({
+                                        id: `edge_${centerDeviceNodeId}_${bn.id}`,
+                                        from: centerDeviceNodeId,
+                                        to: String(bn.id),
+                                        arrows: { to: { enabled: true } },
+                                        color: { color: '#A0A0A0' },
+                                        dashes: false
+                                    });
+                                }
+                            });
+                        }
+
                         // 如果已存在网络实例，先销毁
                         if (network) {
                             network.destroy();
                         }
-                        
+
                         // 根据当前筛选参数动态调整布局与物理参数
                         const layoutOptions = JSON.parse(JSON.stringify(options)); // 深拷贝，避免污染默认配置
-                        const isPortLevel = currentFilters.level === 'port';
-                        const isBusLayout = isPortLevel && currentFilters.layout_type === 'bus';
+                        // const isPortLevel = currentFilters.level === 'port'; // moved up
+                        // const isBusLayout = isPortLevel && currentFilters.layout_type === 'bus'; // moved up
 
                         if (isBusLayout) {
                             // 端口级 + 总线式：采用分层布局，竖向总线，减少线条弯曲与重叠
@@ -534,22 +579,38 @@
                         // 创建新的 vis.Network 实例，并传入容器、数据和配置
                         network = new vis.Network(container, graphData, layoutOptions);
                         
+                        // ========== 邻居高亮：点击节点时突出其邻居与相关边，其他淡化 ==========
+                        function resetHighlight() {
+                            if (!currentGraphData) return;
+                            const allNodes = currentGraphData.nodes.get();
+                            const nodeUpdates = allNodes.map(n => ({ id: n.id, opacity: undefined }));
+                            if (nodeUpdates.length) currentGraphData.nodes.update(nodeUpdates);
+                            const allEdges = currentGraphData.edges.get();
+                            const edgeUpdates = allEdges.map(e => ({ id: e.id, color: { color: '#848484' }, width: 1, dashes: false }));
+                            if (edgeUpdates.length) currentGraphData.edges.update(edgeUpdates);
+                        }
+                        function highlightNeighbors(nodeId) {
+                            if (!currentGraphData || !network) return;
+                            const neighbors = network.getConnectedNodes(nodeId);
+                            const focusSet = new Set([String(nodeId), ...neighbors.map(String)]);
+                            const allNodes = currentGraphData.nodes.get();
+                            const nodeUpdates = allNodes.map(n => ({ id: n.id, opacity: focusSet.has(String(n.id)) ? 1.0 : 0.25 }));
+                            if (nodeUpdates.length) currentGraphData.nodes.update(nodeUpdates);
+                            const allEdges = currentGraphData.edges.get();
+                            const edgeUpdates = allEdges.map(e => {
+                                const onPath = focusSet.has(String(e.from)) && focusSet.has(String(e.to));
+                                return { id: e.id, color: { color: onPath ? '#2B7CE9' : '#CFCFCF' }, width: onPath ? 2 : 1, dashes: onPath ? false : true };
+                            });
+                            if (edgeUpdates.length) currentGraphData.edges.update(edgeUpdates);
+                        }
+                        
                         // 添加网络事件监听
                         network.on('click', function(params) {
                             if (params.nodes.length > 0) {
                                 const nodeId = params.nodes[0];
-                                console.log('点击节点:', nodeId);
-                                // 这里可以添加节点点击事件处理逻辑
-                            }
-                        });
-                        
-                        // 添加节点悬停事件监听，显示自定义 Tooltip
-                        network.on('hoverNode', function(params) {
-                            const nodeId = params.node;
-                            const node = graphData.nodes.get(nodeId);
-                            
-                            if (node && node.nodeType) {
-                                showNodeTooltip(node, params.pointer.DOM);
+                                highlightNeighbors(nodeId);
+                            } else {
+                                resetHighlight();
                             }
                         });
                         
@@ -725,7 +786,7 @@
                 connectionTypeSelect.value = '';
                 criticalOnlyCheck.checked = false;
                 if (onlySelectedDeviceCheck) {
-                    onlySelectedDeviceCheck.checked = true;
+                    onlySelectedDeviceCheck.checked = false;
                 }
                 // 显隐联动：恢复为设备级时隐藏布局与A端开关和分组
                 layoutTypeContainer.style.display = 'none';
