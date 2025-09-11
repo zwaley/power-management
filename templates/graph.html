@@ -468,7 +468,7 @@
                             const { title, ...rest } = node || {};
                             return {
                                 ...rest,
-                                label: formatNodeLabel(rest.label),
+                                label: formatNodeLabel(rest), // 传入整个节点对象，便于从 station/device/port 字段拼装三行标签
                                 ...getNodeStyle(rest)
                             };
                         });
@@ -484,6 +484,129 @@
                             nodes: new vis.DataSet(styledNodes),
                             edges: new vis.DataSet(sanitizedEdges)
                         };
+
+                        // ====== 标准模式（端口级）端子顺序布局：环形按序摆放 ======
+                        (function applyOrderedCircularLayout() {
+                            const isPortLevel = currentFilters.level === 'port';
+                            const isBusLayout = isPortLevel && currentFilters.layout_type === 'bus';
+                            if (!isPortLevel || isBusLayout) return; // 仅在标准端口级下生效
+
+                            // 从 styledNodes 中挑出选中设备的端口节点
+                            const ports = styledNodes.filter(n => (n.nodeType || n.node_type) === 'selected_device_port');
+                            if (!ports || ports.length < 2) return; // 少量端口无需特殊布局
+
+                            // 提取排序键：类型权重 + 数字序号 + 名称
+                            function numOf(v) {
+                                if (v == null) return -1;
+                                const m = String(v).match(/(\d+)/);
+                                return m ? parseInt(m[1], 10) : -1;
+                            }
+                            function typeWeight(t) {
+                                const x = t || '';
+                                if (x.includes('熔丝')) return 0;
+                                if (x.includes('空开')) return 1;
+                                return 2;
+                            }
+                            function sortKey(n) {
+                                const t = n.portType || n.port_type || '';
+                                const pn = n.port_number || n.portName || n.port_name || n.label || '';
+                                return [typeWeight(t), numOf(pn), String(pn)];
+                            }
+                            ports.sort((a, b) => {
+                                const ka = sortKey(a), kb = sortKey(b);
+                                for (let i = 0; i < ka.length; i++) {
+                                    if (ka[i] < kb[i]) return -1;
+                                    if (ka[i] > kb[i]) return 1;
+                                }
+                                return 0;
+                            });
+
+                            // 计算环形参数：从正上方开始，顺时针
+                            const startAngle = -Math.PI / 2; // 顶部
+                            const direction = 1; // 1 顺时针，-1 逆时针（需求变更时可调整）
+                            const N = ports.length;
+                            const step = (2 * Math.PI / N) * direction;
+
+                            // 以画布中心为圆心，半径根据端口数量与容器尺寸自适应
+                            const w = container.clientWidth || 900;
+                            const h = container.clientHeight || 600;
+                            const cx = 0; // 使用 (0,0) 作为坐标原点，fit 后会自动居中
+                            const cy = 0;
+                            const base = Math.min(w, h) * 0.35; // 基准半径
+                            const r = Math.max(220, Math.min(520, base + N * 3));
+
+                            // 将计算结果固化到 styledNodes 内（DataSet 将读取这些初始坐标）
+                            ports.forEach((node, i) => {
+                                const angle = startAngle + i * step;
+                                const x = cx + r * Math.cos(angle);
+                                const y = cy + r * Math.sin(angle);
+                                node.x = x;
+                                node.y = y;
+                                node.fixed = { x: true, y: true };
+                            });
+
+                            // 同步到 DataSet，确保坐标与固定属性生效
+                            try {
+                                const patchList = ports.map(n => ({ id: n.id, x: n.x, y: n.y, fixed: { x: true, y: true } }));
+                                if (patchList.length) {
+                                    graphData.nodes.update(patchList);
+                                }
+                            } catch (e) {
+                                console.warn('applyOrderedCircularLayout update failed:', e);
+                            }
+
+                            // —— 新增 ——
+                            // 对端设备端口（connected_device_port）同角度对齐到外环：
+                            // 依据端口-端口的边关系，将对端端口放置在与本端端口相同的极角上，半径略大，形成“同心双环”。
+                            try {
+                                const connectedPorts = styledNodes.filter(n => (n.nodeType || n.node_type) === 'connected_device_port');
+                                if (connectedPorts && connectedPorts.length) {
+                                    // 1) 建立“选中设备端口 -> 极角”映射
+                                    const angleMap = new Map();
+                                    ports.forEach((n, i) => {
+                                        const ang = startAngle + i * step;
+                                        angleMap.set(String(n.id), ang);
+                                    });
+
+                                    // 2) 遍历对端端口，通过已存在的端口-端口边找到相邻的本端端口角度
+                                    const edgesNow = graphData.edges.get();
+                                    const patches = [];
+                                    const ringGap = Math.max(100, Math.min(220, Math.round(N * 2 + 120)));
+                                    const r2 = r + ringGap; // 外环半径
+
+                                    connectedPorts.forEach((cp, idx) => {
+                                        // 找出与该对端端口相连的所有边
+                                        const incident = edgesNow.filter(e => String(e.from) === String(cp.id) || String(e.to) === String(cp.id));
+                                        const angles = [];
+                                        for (const e of incident) {
+                                            const other = String(e.from) === String(cp.id) ? String(e.to) : String(e.from);
+                                            const a = angleMap.get(String(other));
+                                            if (typeof a === 'number') angles.push(a);
+                                        }
+                                        // 若存在多个关联角度，取均值以获得稳定位置；若没有，按索引兜底均匀分布
+                                        let ang;
+                                        if (angles.length > 0) {
+                                            ang = angles.reduce((s, v) => s + v, 0) / angles.length;
+                                        } else {
+                                            ang = startAngle + (idx % N) * step; // 兜底：与本端端口数量对齐，避免随机漂移
+                                        }
+
+                                        const x2 = cx + r2 * Math.cos(ang);
+                                        const y2 = cy + r2 * Math.sin(ang);
+                                        cp.x = x2;
+                                        cp.y = y2;
+                                        cp.fixed = { x: true, y: true };
+                                        patches.push({ id: cp.id, x: x2, y: y2, fixed: { x: true, y: true } });
+                                    });
+
+                                    if (patches.length) {
+                                        graphData.nodes.update(patches);
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn('applyAlignedConnectedPorts failed:', e);
+                            }
+                        })();
 
                         // ========== 端口级 + 总线式：补充设备中心节点并连接所有总线节点 ==========
                         const isPortLevel = currentFilters.level === 'port';
@@ -510,7 +633,7 @@
                             }
                             // 将所有 bus 节点与中心设备节点连边，确保关系完整
                             const allNodesNow = graphData.nodes.get();
-                            const busNodes = allNodesNow.filter(n => n.nodeType === 'bus');
+                            const busNodes = allNodesNow.filter(n => (n.nodeType || n.type || n.node_type) === 'bus');
                             busNodes.forEach(bn => {
                                 // 若不存在从/到中心设备的连边，则新增一条
                                 const exists = graphData.edges.get({
@@ -518,12 +641,11 @@
                                 });
                                 if (!exists || exists.length === 0) {
                                     graphData.edges.add({
-                                        id: `edge_${centerDeviceNodeId}_${bn.id}`,
                                         from: centerDeviceNodeId,
-                                        to: String(bn.id),
-                                        arrows: { to: { enabled: true } },
-                                        color: { color: '#A0A0A0' },
-                                        dashes: false
+                                        to: bn.id,
+                                        arrows: 'to',
+                                        color: { color: '#6AA6FF' },
+                                        dashes: true
                                     });
                                 }
                             });
@@ -579,6 +701,18 @@
                         // 创建新的 vis.Network 实例，并传入容器、数据和配置
                         network = new vis.Network(container, graphData, layoutOptions);
                         
+                        // 端口级-标准：初始化后将所有节点固定，禁止物理引擎介入；拖拽时仅松开被拖拽的节点
+                        if (!isBusLayout && isPortLevel) {
+                            try {
+                                const allNodes = graphData.nodes.get();
+                                const lockUpdates = allNodes.map(n => ({ id: n.id, fixed: { x: true, y: true } }));
+                                if (lockUpdates.length) graphData.nodes.update(lockUpdates);
+                                network.setOptions({ physics: { enabled: false } });
+                            } catch (e) {
+                                console.warn('standard port-level: lock all nodes failed', e);
+                            }
+                        }
+                        
                         // ========== 邻居高亮：点击节点时突出其邻居与相关边，其他淡化 ==========
                         function resetHighlight() {
                             if (!currentGraphData) return;
@@ -622,32 +756,69 @@
                         // 优化拖动体验：拖动时临时启用物理引擎并固定其他节点
                         network.on('dragStart', function(params) {
                             if (params.nodes.length > 0) {
-                                // 拖拽开始时，临时启用物理引擎并固定其他节点
-                                network.setOptions({physics: {enabled: true}});
-                                const allNodes = graphData.nodes.get();
                                 const draggedNodeId = params.nodes[0];
-                                
-                                allNodes.forEach(node => {
-                                    if (node.id !== draggedNodeId) {
-                                        graphData.nodes.update({id: node.id, fixed: {x: true, y: true}});
+
+                                if (isBusLayout) {
+                                    // 总线式：保持现有策略，短暂开启 physics，锁定其他节点
+                                    network.setOptions({physics: {enabled: true}});
+                                    const allNodes = graphData.nodes.get();
+                                    allNodes.forEach(node => {
+                                        if (node.id !== draggedNodeId) {
+                                            graphData.nodes.update({id: node.id, fixed: {x: true, y: true}});
+                                        }
+                                    });
+                                } else if (isPortLevel) {
+                                    // 标准端口级：禁止全局 physics，仅解锁被拖拽节点以允许移动
+                                    try {
+                                        network.setOptions({physics: {enabled: false}});
+                                        graphData.nodes.update({ id: draggedNodeId, fixed: { x: false, y: false } });
+                                    } catch (e) {
+                                        console.warn('dragStart unlock dragged node failed', e);
                                     }
-                                });
+                                } else {
+                                    // 设备级-标准：沿用原策略（短期开启 physics，锁住其他节点）
+                                    network.setOptions({physics: {enabled: true}});
+                                    const allNodes = graphData.nodes.get();
+                                    allNodes.forEach(node => {
+                                        if (node.id !== draggedNodeId) {
+                                            graphData.nodes.update({id: node.id, fixed: {x: true, y: true}});
+                                        }
+                                    });
+                                }
                             }
                         });
                         
                         network.on('dragEnd', function(params) {
                             if (params.nodes.length > 0) {
-                                // 拖拽结束后，恢复物理引擎并释放节点固定状态
-                                const allNodes = graphData.nodes.get();
-                                
-                                allNodes.forEach(node => {
-                                    graphData.nodes.update({id: node.id, fixed: {x: false, y: false}});
-                                });
-                                
-                                // 短暂延迟后关闭物理引擎，防止自动重排
-                                setTimeout(() => {
-                                    network.setOptions({physics: {enabled: false}});
-                                }, 120);
+                                const draggedNodeId = params.nodes[0];
+
+                                if (isBusLayout) {
+                                    // 总线式：恢复所有节点固定状态，稍后关闭 physics
+                                    const allNodes = graphData.nodes.get();
+                                    allNodes.forEach(node => {
+                                        graphData.nodes.update({id: node.id, fixed: {x: false, y: false}});
+                                    });
+                                    setTimeout(() => {
+                                        network.setOptions({physics: {enabled: false}});
+                                    }, 120);
+                                } else if (isPortLevel) {
+                                    // 标准端口级：将被拖拽节点重新固定，保持整体静止
+                                    try {
+                                        graphData.nodes.update({ id: draggedNodeId, fixed: { x: true, y: true } });
+                                        network.setOptions({physics: {enabled: false}});
+                                    } catch (e) {
+                                        console.warn('dragEnd re-lock dragged node failed', e);
+                                    }
+                                } else {
+                                    // 设备级-标准：恢复并关闭 physics
+                                    const allNodes = graphData.nodes.get();
+                                    allNodes.forEach(node => {
+                                        graphData.nodes.update({id: node.id, fixed: {x: false, y: false}});
+                                    });
+                                    setTimeout(() => {
+                                        network.setOptions({physics: {enabled: false}});
+                                    }, 120);
+                                }
                             }
                         });
                         
@@ -680,16 +851,59 @@
             }
 
             // ========== 辅助函数：格式化节点标签，Tooltip，样式 ==========
-            function formatNodeLabel(originalLabel) {
-                // 将"机房_设备名"格式的标签分行显示，便于阅读
-                if (!originalLabel) return '';
-                const parts = String(originalLabel).split('_');
-                if (parts.length >= 2) {
-                    const roomName = parts[0];
-                    const deviceName = parts.slice(1).join('_');
-                    return `${roomName}\n${deviceName}`;
+            // （注意）formatNodeLabel 已在文末统一定义为“三行：机房/设备/端口”的实现，这里不再重复定义，避免覆盖与混淆。
+            function formatNodeLabel(input) {
+                // 统一三行标签生成规则（中文注释）：
+                // - 选中设备端口（selected_device_port）：只显示端口名称（不含站点、设备名）
+                // - 对端设备端口（connected_device_port）：显示两行“设备名\n端口名”（不含站点）
+                // - 其他节点：优先按“站点\n设备\n端口”三行显示，字段缺失则按可用字段拼接
+                // - 回退：若传入的是字符串，则按下划线拆分成 3/2 行；否则原样返回
+                if (!input) return '';
+
+                if (typeof input === 'object') {
+                    const type = input.nodeType || input.node_type || '';
+                    const station = input.station || '';
+                    const device = input.deviceName || input.device_name || '';
+                    const port = input.portName || input.port_name || '';
+
+                    if (type === 'selected_device_port') {
+                        // 选中设备端口：仅端口名
+                        if (port) return port;
+                        const lbl = String(input.label || '');
+                        if (lbl.includes('·')) return lbl.split('·').pop();
+                        return lbl;
+                    }
+
+                    if (type === 'connected_device_port') {
+                        // 对端设备端口：设备 + 端口（不含站点）
+                        const lines = [];
+                        if (device) lines.push(device);
+                        if (port) lines.push(port);
+                        if (lines.length) return lines.join('\n');
+                        // 字段缺失时回退到原 label
+                        return String(input.label || '');
+                    }
+
+                    // 其余节点：按三行（站点/设备/端口）拼接，缺哪个省略哪个
+                    const lines = [];
+                    if (station) lines.push(station);
+                    if (device) lines.push(device);
+                    if (port) lines.push(port);
+                    if (lines.length) return lines.join('\n');
+
+                    // 字段都缺失时，退回使用原 label
+                    input = input.label || '';
                 }
-                return String(originalLabel);
+
+                // 字符串场景：按照下划线分段，优先拆成 三/二 行
+                const text = String(input);
+                const parts = text.split('_');
+                if (parts.length >= 3) {
+                    return `${parts[0]}\n${parts[1]}\n${parts.slice(2).join('_')}`;
+                } else if (parts.length === 2) {
+                    return `${parts[0]}\n${parts[1]}`;
+                }
+                return text;
             }
 
             function showNodeTooltip(node, position) {
@@ -718,26 +932,25 @@
                             <div><strong>端口:</strong> ${node.portName || '未知'}</div>
                             <div><strong>电流方向:</strong> ${node.direction || '未知'}</div>
                             ${node.voltage ? `<div><strong>电压等级:</strong> ${node.voltage}</div>` : ''}
-                            ${node.current ? `<div><strong>额定电流:</strong> ${node.current}</div>` : ''}
                         </div>
                     `;
                 } else {
                     html = `
                         <div class="tooltip-header">设备节点</div>
                         <div class="tooltip-content">
-                            <div><strong>设备名称:</strong> ${node.label || '未知'}</div>
-                            <div><strong>设备类型:</strong> ${node.deviceType || node.device_type || '未知'}</div>
-                            <div><strong>站点:</strong> ${node.station || '未知'}</div>
+                            <div><strong>设备:</strong> ${node.deviceName || node.label || '未知'}</div>
+                            ${node.station ? `<div><strong>机房:</strong> ${node.station}</div>` : ''}
+                            ${node.deviceType ? `<div><strong>类型:</strong> ${node.deviceType}</div>` : ''}
                         </div>
                     `;
                 }
 
                 tooltip.innerHTML = html;
-                tooltip.style.position = 'absolute';
-                tooltip.style.left = (position.x + 10) + 'px';
-                tooltip.style.top = (position.y - 10) + 'px';
-                tooltip.style.zIndex = '9999';
                 document.body.appendChild(tooltip);
+
+                // 定位到鼠标附近
+                tooltip.style.left = `${position.x + 12}px`;
+                tooltip.style.top = `${position.y + 12}px`;
             }
 
             function hideNodeTooltip() {
