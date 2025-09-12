@@ -472,12 +472,38 @@
                                 ...getNodeStyle(rest)
                             };
                         });
+
+                        // —— 自动阈值切换到总线布局 ——
+                        // 当层级为端口（port），且当前布局不是总线（bus），如果选中设备的端口数量 > 20，
+                        // 则强制切换到总线布局，并重新加载数据，随后终止本次渲染流程，避免重复绘制。
+                        try {
+                            const isPortLevelNow = levelSelect && levelSelect.value === 'port';
+                            const isNotBusNow = layoutTypeSelect && layoutTypeSelect.value !== 'bus';
+                            if (isPortLevelNow && isNotBusNow) {
+                                const selectedPortsCount = styledNodes.filter(n => (n.nodeType || n.node_type) === 'selected_device_port').length;
+                                if (selectedPortsCount > 20) {
+                                    layoutTypeSelect.value = 'bus';
+                                    // 若存在级联依赖的 UI 逻辑（监听 change），可主动触发；此处直接重载数据更稳妥
+                                    loadTopologyData();
+                                    return; // 终止后续流程，等待总线布局的重新渲染
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('auto-switch-to-bus failed:', e);
+                        }
                         
                         // 清洗边数据，同样移除 title 字段，防止默认 tooltip
                         const sanitizedEdges = (data.edges || []).map(edge => {
                             const { title, ...rest } = edge || {};
                             return { ...rest };
                         });
+
+                        // —— 空数据防御：若无节点且无边，则给出友好提示并终止渲染 ——
+                        if ((styledNodes.length === 0) && (sanitizedEdges.length === 0)) {
+                            container.innerHTML = '<div class="alert alert-info" role="alert">当前筛选条件下无可显示的数据，请调整筛选条件后重试。</div>';
+                            currentGraphData = null;
+                            return;
+                        }
                         
                         // 将节点与边包装为 vis.js 需要的数据集结构
                         const graphData = {
@@ -613,13 +639,18 @@
                         const isBusLayout = isPortLevel && currentFilters.layout_type === 'bus';
                         let centerDeviceNodeId = null;
                         if (isBusLayout) {
-                            // 尝试判断是否已经存在设备类型节点
-                            const existingDeviceNodes = (styledNodes || []).filter(n => (n.nodeType === 'device') || (String(n.id) === String(currentDeviceId)));
+                            // 尝试判断是否已经存在设备类型节点（兼容 nodeType/node_type/type）以及后端ID形式 device_{id}
+                            const allNodesNow0 = graphData.nodes.get();
+                            const existingDeviceNodes = (allNodesNow0 || []).filter(n => {
+                                const t = n.nodeType || n.node_type || n.type;
+                                const idStr = String(n.id);
+                                return t === 'device' || idStr === `device_${currentDeviceId}` || idStr === String(currentDeviceId);
+                            });
                             if (existingDeviceNodes.length > 0) {
                                 centerDeviceNodeId = String(existingDeviceNodes[0].id);
                             } else {
-                                // 若不存在，则为当前选中设备创建一个中心节点，避免“总线”节点孤立
-                                centerDeviceNodeId = `device_center_${currentDeviceId}`;
+                                // 若不存在，则为当前选中设备创建一个中心节点，使用与后端一致的ID前缀 device_{id}
+                                centerDeviceNodeId = `device_${currentDeviceId}`;
                                 const selectedText = (deviceSelect && deviceSelect.options && deviceSelect.selectedIndex >= 0)
                                     ? deviceSelect.options[deviceSelect.selectedIndex].text
                                     : `设备 ${currentDeviceId}`;
@@ -858,6 +889,7 @@
                 // - 对端设备端口（connected_device_port）：显示两行“设备名\n端口名”（不含站点）
                 // - 其他节点：优先按“站点\n设备\n端口”三行显示，字段缺失则按可用字段拼接
                 // - 回退：若传入的是字符串，则按下划线拆分成 3/2 行；否则原样返回
+                // 重要：端口名必须严格使用后端提供的原始字段 port_name/portName，不允许从 label 或其它字符串做拆分或二次加工！
                 if (!input) return '';
 
                 if (typeof input === 'object') {
@@ -868,16 +900,25 @@
 
                     if (type === 'selected_device_port') {
                         // 选中设备端口：仅端口名
+                        // 严格使用原始端口字段；若缺失则不做任何猜测与拆分，直接回退到原 label
                         if (port) return port;
-                        const lbl = String(input.label || '');
-                        if (lbl.includes('·')) return lbl.split('·').pop();
-                        return lbl;
+                        return String(input.label || '');
                     }
 
                     if (type === 'connected_device_port') {
-                        // 对端设备端口：设备 + 端口（不含站点）
+                        // 对端设备端口：设备 + 端口（不含站点）；设备名在“机房”处强制换行
                         const lines = [];
-                        if (device) lines.push(device);
+                        if (device) {
+                            const idx = device.indexOf('机房');
+                            if (idx !== -1) {
+                                const cut = idx + '机房'.length; // 包含“机房”二字在第一行
+                                const before = device.slice(0, cut).trim();
+                                const after = device.slice(cut).trim();
+                                lines.push(after ? `${before}\n${after}` : before);
+                            } else {
+                                lines.push(device);
+                            }
+                        }
                         if (port) lines.push(port);
                         if (lines.length) return lines.join('\n');
                         // 字段缺失时回退到原 label
@@ -924,12 +965,19 @@
                             <div><strong>电流方向:</strong> ${node.direction || '未知'}</div>
                         </div>
                     `;
-                } else if (node.nodeType === 'port') {
+                } else if ((node.nodeType || node.node_type || node.type) === 'port' ||
+                           (node.nodeType || node.node_type) === 'selected_device_port' ||
+                           (node.nodeType || node.node_type) === 'connected_device_port') {
+                    const portName = node.portName || node.port_name || '未知';
+                    const connectedDeviceInfo = node.connected_device_info || '空闲';
+                    const connectedPortInfo = node.connected_port_info || '空闲';
                     html = `
                         <div class="tooltip-header">端口节点</div>
                         <div class="tooltip-content">
-                            <div><strong>设备:</strong> ${node.deviceName || '未知'}</div>
-                            <div><strong>端口:</strong> ${node.portName || '未知'}</div>
+                            <div><strong>设备:</strong> ${node.deviceName || node.device_name || '未知'}</div>
+                            <div><strong>端口:</strong> ${portName}</div>
+                            <div><strong>连接到:</strong> ${connectedDeviceInfo}</div>
+                            <div><strong>对端端口:</strong> ${connectedPortInfo}</div>
                             <div><strong>电流方向:</strong> ${node.direction || '未知'}</div>
                             ${node.voltage ? `<div><strong>电压等级:</strong> ${node.voltage}</div>` : ''}
                         </div>

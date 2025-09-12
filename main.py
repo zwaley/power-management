@@ -2052,6 +2052,7 @@ async def get_graph_data(
     db: Session = Depends(get_db)
 ):
     """获取拓扑图数据，只显示与选中设备直接连接的设备"""
+    logger.info(f"/graph_data called: device_id={device_id}, level={level}, layout_type={layout_type}, station={station}, device_type={device_type}, connection_type={connection_type}, show_critical_only={show_critical_only}, group_size={group_size}, only_selected_device={only_selected_device}")
     nodes = []
     edges = []
     processed_device_ids = set()
@@ -2082,6 +2083,44 @@ async def get_graph_data(
             for node in bus_data['port_nodes']:
                 add_node(node)
             edges.extend(bus_data['bus_port_edges'])
+
+            # 新增：中心设备节点（用于总线式布局的中心）
+            center_device_node = {
+                "id": f"device_{selected_device.id}",
+                "type": "device",
+                "node_type": "device",
+                "label": selected_device.name,
+                "title": f"设备: {selected_device.name}\n类型: {selected_device.device_type or 'N/A'}\n站点: {selected_device.station or 'N/A'}\n型号: {selected_device.model or 'N/A'}",
+                "device_id": selected_device.id,
+                "device_name": selected_device.name,
+                "device_type": selected_device.device_type,
+                "station": selected_device.station,
+                "model": selected_device.model,
+                "shape": "box",
+                "size": 30,
+                "color": {
+                    "background": "#546E7A",
+                    "border": "#37474F"
+                },
+                "font": {"size": 12, "color": "#FFFFFF"}
+            }
+            add_node(center_device_node)
+
+            # 新增：为每条总线创建 device->bus 连边（无箭头，虚线）
+            for b in bus_data['bus_nodes']:
+                if b.get('type') == 'bus':
+                    device_bus_edge = {
+                        "id": f"device_bus_{selected_device.id}_{b['id']}",
+                        "type": "device_bus_connection",
+                        "from": center_device_node['id'],
+                        "to": b['id'],
+                        "arrows": "none",
+                        "color": {"color": "#90A4AE", "width": 2, "opacity": 0.6},
+                        "dashes": [5, 5],
+                        "smooth": {"enabled": True, "type": "curvedCW", "roundness": 0.15},
+                        "length": 70
+                    }
+                    edges.append(device_bus_edge)
         else:
             # 标准布局：创建设备图标节点和端口节点
             # 1. 创建设备图标节点 (Level 0)
@@ -2270,6 +2309,7 @@ async def get_graph_data(
     else:
         response_data["layout_type"] = "standard"
     
+    logger.info(f"/graph_data response: nodes={len(nodes)}, edges={len(edges)}, layout_type={response_data['layout_type']}")
     return JSONResponse(content=response_data)
 
 
@@ -2441,6 +2481,9 @@ def _create_port_nodes(device: Device, db: Session, level: int = 1) -> list:
                          <b>设备类型:</b> {device.device_type or 'N/A'}""",
             "level": level,  # 端口节点在 level 层
             "device_id": device.id,
+            "device_name": device.name,  # 新增：设备名称，便于前端三行显示
+            "station": device.station,   # 新增：站点信息
+            "port_name": f"{port_type}-{port_number}",  # 新增：端口名（简化）
             "port_type": port_type,
             "port_number": port_number,
             "node_type": "selected_device_port",  # 标记为选中设备端口
@@ -2458,6 +2501,9 @@ def _create_port_nodes(device: Device, db: Session, level: int = 1) -> list:
                          <b>连接到:</b> {device.name}""",
             "level": level + 1,  # 对端端口节点在 level + 1 层
             "device_id": connected_device.id,
+            "device_name": connected_device.name,  # 新增
+            "station": connected_device.station,    # 新增
+            "port_name": f"{port_type}-{port_number}",  # 新增
             "port_type": port_type,
             "port_number": port_number,
             "node_type": "connected_device_port"  # 标记为对端设备端口
@@ -4665,6 +4711,7 @@ def _create_connected_device_port_node(device: Device, port: dict, db: Session) 
             'device_id': connected_device.id,
             'device_name': connected_device.name,
             'device_type': connected_device.device_type,
+            'station': connected_device.station,
             'port_name': connected_port_name,
             'port_type': connected_port_type,
             'connection_id': connection.id,
@@ -4713,8 +4760,8 @@ def _create_port_node_for_bus(device: Device, port: dict, direction: str, db: Se
     base_color = port_colors.get(port_type_chinese, '#757575')
     
     # 获取对端设备信息
-    connected_device_info = "未连接"
-    connected_port_info = "N/A"
+    connected_device_info = "空闲"
+    connected_port_info = "空闲"
     if port.get('connected_device_id'):
         connected_device = db.query(Device).filter(Device.id == port['connected_device_id']).first()
         if connected_device:
@@ -4738,29 +4785,22 @@ def _create_port_node_for_bus(device: Device, port: dict, direction: str, db: Se
                         elif connection.source_breaker_number:
                             connected_port_info = f"空开-{connection.source_breaker_number}"
     
-    # 简化端口名称，移除设备名称前缀
-    simplified_port_name = port['name']
-    if device.name in simplified_port_name:
-        simplified_port_name = simplified_port_name.replace(f"{device.name}_", "")
-    
-    # 将端口名称中的英文改为中文
-    if 'fuse' in simplified_port_name.lower():
-        simplified_port_name = simplified_port_name.replace('fuse', '熔丝').replace('Fuse', '熔丝').replace('FUSE', '熔丝')
-    if 'breaker' in simplified_port_name.lower():
-        simplified_port_name = simplified_port_name.replace('breaker', '空开').replace('Breaker', '空开').replace('BREAKER', '空开')
-    
+    # 使用用户提交的原始端口名，不做任何简化或翻译
+    original_port_name = port['name']
+
     # 使用连接ID确保节点ID的唯一性，避免重复ID问题
     connection_suffix = f"_{port.get('connection_id', 'no_conn')}"
     
     return {
-        'id': f"port_{device.id}_{port['name'].replace(' ', '_')}{connection_suffix}",
+        'id': f"port_{device.id}_{original_port_name.replace(' ', '_')}{connection_suffix}",
         'type': 'port',
-        'label': simplified_port_name,
-        'title': f"{device.name} - {simplified_port_name}\n类型: {port_type_chinese}\n规格: {port.get('spec', 'N/A')}\n方向: {direction}\n连接到: {connected_device_info}\n对端端口: {connected_port_info}",
+        'label': original_port_name,
+        'title': f"{device.name} - {original_port_name}\n类型: {port_type_chinese}\n规格: {port.get('spec', 'N/A')}\n方向: {direction}\n连接到: {connected_device_info}\n对端端口: {connected_port_info}",
         'device_id': device.id,
         'device_name': device.name,
         'device_type': device.device_type,
-        'port_name': simplified_port_name,
+        'station': device.station,
+        'port_name': original_port_name,
         'port_type': port_type_chinese,
         'port_spec': port.get('spec'),
         'direction': direction,
@@ -4822,16 +4862,16 @@ def _create_bus_port_edges(connection, direction: str) -> list:
             # 源端口（输出端口）- 使用与_create_port_node_for_bus一致的ID格式
             source_ports = []
             if connection.source_fuse_number:
-                source_ports.append(f"port_{connection.id}_{source_device.id}_熔丝-{connection.source_fuse_number}")
+                source_ports.append(f"port_{source_device.id}_熔丝-{connection.source_fuse_number}_{connection.id}")
             if connection.source_breaker_number:
-                source_ports.append(f"port_{connection.id}_{source_device.id}_空开-{connection.source_breaker_number}")
+                source_ports.append(f"port_{source_device.id}_空开-{connection.source_breaker_number}_{connection.id}")
             
             # 目标端口（输入端口）- 使用与_create_port_node_for_bus一致的ID格式
             target_ports = []
             if connection.target_fuse_number:
-                target_ports.append(f"port_{connection.id}_{target_device.id}_熔丝-{connection.target_fuse_number}")
+                target_ports.append(f"port_{target_device.id}_熔丝-{connection.target_fuse_number}_{connection.id}")
             if connection.target_breaker_number:
-                target_ports.append(f"port_{connection.id}_{target_device.id}_空开-{connection.target_breaker_number}")
+                target_ports.append(f"port_{target_device.id}_空开-{connection.target_breaker_number}_{connection.id}")
             
             # 创建端口间连接
             for source_port in source_ports:
