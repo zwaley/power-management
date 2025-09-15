@@ -1,0 +1,43 @@
+// ... existing code ...
+                            options.physics.hierarchicalRepulsion = {
+                                centralGravity: 0.0,
+                                springLength: 100,
+                                springConstant: 0.01,
+                                nodeDistance: 120,
+                                damping: 0.09
+                            };
+                        } else {
+                            // 标准布局配置 - 强制使用分层布局
+                            options.layout = {
+                                hierarchical: {
+                                    enabled: true,
+                                    levelSeparation: 250, // 增加层级间距
+                                    nodeSpacing: 150,     // 增加节点间距
+                                    direction: 'LR',      // 从左到右
+                                    sortMethod: 'directed'
+                                }
+                            };
+                            
+                            // 为分层布局选择合适的物理求解器
+                            options.physics.solver = 'hierarchicalRepulsion';
+                            options.physics.hierarchicalRepulsion = {
+                                centralGravity: 0.0,
+                                springLength: 150,
+                                springConstant: 0.01,
+                                nodeDistance: 150,
+                                damping: 0.1
+                            };
+                        }
+                        
+                        // 创建新的vis.Network实例，并传入容器、数据和配置
+                        network = new vis.Network(container, graphData, options);
+                        
+                        // 布局稳定后禁用物理引擎，允许用户自由拖动
+                        network.on("stabilizationIterationsDone", function () {
+                            network.setOptions( { physics: false } );
+                        });
+                        
+                        // 添加网络事件监听
+                        network.on('click', function(params) {
+                            if (params.nodes.length > 0) {
+// ... existing code ...

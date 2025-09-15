@@ -1,0 +1,1601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>拓扑图 - DC Asset Manager</title>
+    <!-- 引入Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- 引入Font Awesome图标库 -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- 引入vis.js网络图库的CSS -->
+    <link href="https://visjs.github.io/vis-network/styles/vis-network.min.css" rel="stylesheet" type="text/css" />
+    <style>
+        /* 定义拓扑图容器的样式 */
+        #mynetwork {
+            width: 100%;
+            height: 80vh; /* 高度为视口高度的80% */
+            border: 1px solid lightgray;
+            background-color: #f8f9fa;
+        }
+        
+        /* 节点悬停提示框样式 */
+        .node-tooltip {
+            background-color: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            max-width: 250px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+            z-index: 9999;
+        }
+        
+        .tooltip-header {
+            font-weight: bold;
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: #ffd700;
+            border-bottom: 1px solid #444;
+            padding-bottom: 4px;
+        }
+        
+        .tooltip-content {
+            line-height: 1.4;
+        }
+        
+        .tooltip-content div {
+            margin-bottom: 3px;
+        }
+        
+        .tooltip-content strong {
+            color: #87ceeb;
+        }
+    </style>
+</head>
+<body>
+    <!-- 页面导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">安吉电信动力设备管理系统</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">首页</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" aria-current="page" href="/graph">拓扑图</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-12">
+                <h1>设备电力链路拓扑图</h1>
+                <p>请从下方选择一个设备以查看其相关的电力链路。图中将展示该设备的直接上游和下游设备。</p>
+                <div class="mb-3">
+                    <label for="device-select" class="form-label"><strong>选择设备:</strong></label>
+                    <!-- 设备选择下拉框，选项由后端模板引擎动态生成 -->
+                    <select class="form-select" id="device-select">
+                        <option selected disabled value="">请选择一个设备以生成拓扑图</option>
+                        {% for device in devices %}
+                        <option value="{{ device.id }}">{{ device.name }} (ID: {{ device.id }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <!-- 拓扑图筛选控制面板 -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <button class="btn btn-link" type="button" data-bs-toggle="collapse" data-bs-target="#filterPanel" aria-expanded="false" aria-controls="filterPanel">
+                                <i class="fas fa-filter"></i> 筛选选项
+                            </button>
+                        </h5>
+                    </div>
+                    <div id="filterPanel" class="collapse">
+                        <div class="card-body">
+                            <div class="row">
+                                <!-- 显示级别选择 -->
+                                <div class="col-md-3 mb-3">
+                                    <label for="level-select" class="form-label">显示级别</label>
+                                    <select class="form-select" id="level-select">
+                                        <option value="device" selected>设备级</option>
+                                        <option value="port">端口级</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- 布局类型选择（仅在端口级时显示） -->
+                                <div class="col-md-3 mb-3" id="layout-type-container" style="display: none;">
+                                    <label for="layout-type-select" class="form-label">布局类型</label>
+                                    <select class="form-select" id="layout-type-select">
+                                        <option value="standard" selected>标准布局</option>
+                                        <option value="bus">总线式布局</option>
+                                    </select>
+                                </div>
+                                
+                                <!-- 站点筛选 -->
+                                <div class="col-md-3 mb-3">
+                                    <label for="station-select" class="form-label">站点筛选</label>
+                                    <select class="form-select" id="station-select">
+                                        <option value="">全部站点</option>
+                                        <!-- 站点选项将通过JavaScript动态加载 -->
+                                    </select>
+                                </div>
+                                
+                                <!-- 设备类型筛选 -->
+                                <div class="col-md-3 mb-3">
+                                    <label for="device-type-select" class="form-label">设备类型</label>
+                                    <select class="form-select" id="device-type-select">
+                                        <option value="">全部类型</option>
+                                        <!-- 设备类型选项将通过JavaScript动态加载 -->
+                                    </select>
+                                </div>
+                                
+                                <!-- 连接类型筛选 -->
+                                <div class="col-md-3 mb-3">
+                                    <label for="connection-type-select" class="form-label">连接类型</label>
+                                    <select class="form-select" id="connection-type-select">
+                                        <option value="">全部连接</option>
+                                        <!-- 连接类型选项将通过JavaScript动态加载 -->
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <!-- 关键设备筛选 -->
+                                <div class="col-md-4 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="critical-only-check">
+                                        <label class="form-check-label" for="critical-only-check">
+                                            仅显示关键设备
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- 仅A端视图（仅端口级+总线式时显示） -->
+                                <div class="col-md-4 mb-3" id="only-selected-device-container" style="display: none;">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="only-selected-device-check" checked>
+                                        <label class="form-check-label" for="only-selected-device-check">仅显示选中设备端口（A端视图）</label>
+                                    </div>
+                                </div>
+
+                                <!-- 总线分组大小（仅端口级+总线式时显示） -->
+                                <div class="col-md-4 mb-3" id="group-size-container" style="display: none;">
+                                    <label for="group-size-input" class="form-label">总线分组大小</label>
+                                    <input type="number" class="form-control" id="group-size-input" value="12" min="1" max="100" step="1">
+                                    <div class="form-text">范围 1-100，默认 12</div>
+                                    <!-- 新增：总线分组批量操作按钮（端口级+总线式时显示） -->
+                                    <div class="mt-2" id="bus-group-actions" style="display: none;">
+                                        <div class="btn-group btn-group-sm" role="group" aria-label="Bus group actions">
+                                            <button type="button" class="btn btn-outline-secondary" id="collapse-all-btn" title="隐藏所有端口节点，仅保留总线节点">全部汇聚</button>
+                                            <button type="button" class="btn btn-outline-secondary" id="expand-all-btn" title="显示所有端口节点">全部展开</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- 应用筛选按钮 -->
+                                <div class="col-md-4 mb-3">
+                                    <button type="button" class="btn btn-primary" id="apply-filters-btn">
+                                        <i class="fas fa-search"></i> 应用筛选
+                                    </button>
+                                    <button type="button" class="btn btn-secondary ms-2" id="reset-filters-btn">
+                                        <i class="fas fa-undo"></i> 重置
+                                    </button>
+                                </div>
+                                
+                                <!-- 全屏按钮 -->
+                                <div class="col-md-4 mb-3">
+                                    <button type="button" class="btn btn-info" id="fullscreen-btn">
+                                        <i class="fas fa-expand"></i> 全屏显示
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-12">
+                <!-- vis.js拓扑图将在此div中渲染 -->
+                <div id="mynetwork"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- 引入vis.js网络图库 -->
+    <script type="text/javascript" src="https://visjs.github.io/vis-network/standalone/umd/vis-network.min.js"></script>
+    
+    <script type="text/javascript">
+        // 等待DOM内容加载完毕后执行脚本
+        document.addEventListener('DOMContentLoaded', function () {
+            // 获取页面元素
+            const deviceSelect = document.getElementById('device-select');
+            const container = document.getElementById('mynetwork');
+            const levelSelect = document.getElementById('level-select');
+            const layoutTypeSelect = document.getElementById('layout-type-select');
+            const layoutTypeContainer = document.getElementById('layout-type-container');
+            const stationSelect = document.getElementById('station-select');
+            const deviceTypeSelect = document.getElementById('device-type-select');
+            const connectionTypeSelect = document.getElementById('connection-type-select');
+            const criticalOnlyCheck = document.getElementById('critical-only-check');
+            const applyFiltersBtn = document.getElementById('apply-filters-btn');
+            const resetFiltersBtn = document.getElementById('reset-filters-btn');
+            const fullscreenBtn = document.getElementById('fullscreen-btn');
+            // 仅A端视图元素
+            const onlySelectedDeviceContainer = document.getElementById('only-selected-device-container');
+            const onlySelectedDeviceCheck = document.getElementById('only-selected-device-check');
+            const groupSizeContainer = document.getElementById('group-size-container');
+            const groupSizeInput = document.getElementById('group-size-input');
+            // 新增：批量汇聚/展开按钮引用
+            const busGroupActions = document.getElementById('bus-group-actions');
+            const collapseAllBtn = document.getElementById('collapse-all-btn');
+            const expandAllBtn = document.getElementById('expand-all-btn');
+            
+            let network = null;
+            let currentDeviceId = null;
+            // 新增：当前图数据与分组索引
+            let currentGraphData = null;
+            let groupingIndex = null;
+
+            // vis.js网络图的配置选项
+            const options = {
+                interaction: {
+                    dragNodes: true, // 是否可以拖动节点
+                    dragView: true,  // 是否可以拖动视图
+                    hover: true,     // 鼠标悬停时是否高亮
+                    zoomView: true,  // 是否可以缩放视图
+                    tooltipDelay: 300,
+                },
+                physics: { // 物理引擎配置，防止拖动时所有节点跟着移动
+                    enabled: true,
+                    solver: 'hierarchicalRepulsion',
+                    hierarchicalRepulsion: {
+                        centralGravity: 0.0,
+                        springLength: 100,
+                        springConstant: 0.005,
+                        nodeDistance: 100,
+                        damping: 0.15
+                    },
+                    maxVelocity: 10,
+                    minVelocity: 0.05,
+                    stabilization: {
+                        enabled: true,
+                        iterations: 1500,
+                        updateInterval: 100,
+                        onlyDynamicEdges: false,
+                        fit: false // 禁用自动适应，保持视觉稳定
+                    },
+                    timestep: 0.3,
+                    adaptiveTimestep: false // 禁用自适应时间步长
+                },
+                nodes: { // 节点样式配置
+                    shape: 'box',
+                    margin: 5, // 减小边距
+                    widthConstraint: {
+                        minimum: 100,
+                        maximum: 150
+                    },
+                    heightConstraint: {
+                        minimum: 40
+                    },
+                    font: {
+                        size: 11,
+                        face: 'Arial',
+                        multi: false,
+                        align: 'center'
+                    },
+                    borderWidth: 1,
+                    shadow: {
+                        enabled: true,
+                        color: 'rgba(0,0,0,0.15)',
+                        size: 3,
+                        x: 1,
+                        y: 1
+                    },
+                    fixed: {
+                        x: false,
+                        y: false
+                    }
+                },
+                edges: { // 连接线样式配置
+                    arrows: {
+                        to: { enabled: true, scaleFactor: 1, type: 'arrow' } // 显示指向箭头
+                    },
+                    color: {
+                        color: '#848484',
+                        highlight: '#2B7CE9',
+                        hover: '#2B7CE9',
+                    },
+                    smooth: { // 连接线平滑显示
+                        type: 'cubicBezier'
+                    }
+                },
+                layout: {
+                    randomSeed: 2, // 固定随机种子，确保布局一致性
+                    improvedLayout: true,
+                    clusterThreshold: 150,
+                    hierarchical: {
+                        enabled: false,
+                        levelSeparation: 150,
+                        nodeSpacing: 100,
+                        treeSpacing: 200,
+                        blockShifting: true,
+                        edgeMinimization: true,
+                        parentCentralization: true,
+                        direction: 'UD',
+                        sortMethod: 'hubsize'
+                    }
+                }
+            };
+
+            // 初始化筛选选项
+            function initializeFilterOptions() {
+                // 加载筛选选项数据
+                fetch('/api/topology/filter-options')
+                    .then(response => response.json())
+                    .then(response => {
+                        // 检查API响应格式
+                        const data = response.data || response;
+                        
+                        // 填充站点选项
+                        if (data.stations) {
+                            data.stations.forEach(station => {
+                                const option = document.createElement('option');
+                                option.value = station;
+                                option.textContent = station;
+                                stationSelect.appendChild(option);
+                            });
+                        }
+                        
+                        // 填充设备类型选项
+                        if (data.device_types) {
+                            data.device_types.forEach(deviceType => {
+                                const option = document.createElement('option');
+                                option.value = deviceType;
+                                option.textContent = deviceType;
+                                deviceTypeSelect.appendChild(option);
+                            });
+                        }
+                        
+                        // 填充连接类型选项
+                        if (data.connection_types) {
+                            data.connection_types.forEach(connectionType => {
+                                const option = document.createElement('option');
+                                option.value = connectionType;
+                                option.textContent = connectionType;
+                                connectionTypeSelect.appendChild(option);
+                            });
+                        }
+                    })
+                    .catch(error => {
+                        console.error('加载筛选选项失败:', error);
+                    });
+            }
+
+            // 获取当前筛选参数
+            function getCurrentFilters() {
+                const filters = {
+                    level: levelSelect.value,
+                    station: stationSelect.value || null,
+                    device_type: deviceTypeSelect.value || null,
+                    connection_type: connectionTypeSelect.value || null,
+                    show_critical_only: criticalOnlyCheck.checked
+                };
+                
+                // 只有在端口级时才添加布局类型参数
+                if (levelSelect.value === 'port') {
+                    filters.layout_type = layoutTypeSelect.value;
+                    // 端口级+总线式布局时附加仅A端视图参数
+                    if (layoutTypeSelect.value === 'bus') {
+                        filters.only_selected_device = !!onlySelectedDeviceCheck?.checked;
+                        // 读取并校验 group_size，范围 1-100，默认 12
+                        if (groupSizeInput) {
+                            let gs = parseInt(groupSizeInput.value, 10);
+                            if (isNaN(gs)) gs = 12;
+                            if (gs < 1) gs = 1;
+                            if (gs > 100) gs = 100;
+                            filters.group_size = gs;
+                        }
+                    }
+                }
+                
+                return filters;
+            }
+
+            // 构建API URL with 筛选参数
+            function buildApiUrl(deviceId, filters) {
+                const params = new URLSearchParams();
+                
+                if (filters.level) params.append('level', filters.level);
+                if (filters.station) params.append('station', filters.station);
+                if (filters.device_type) params.append('device_type', filters.device_type);
+                if (filters.connection_type) params.append('connection_type', filters.connection_type);
+                if (filters.show_critical_only) params.append('show_critical_only', 'true');
+                if (filters.layout_type) params.append('layout_type', filters.layout_type);
+                // 若存在仅A端视图参数，则传递
+                if (typeof filters.only_selected_device !== 'undefined') {
+                    params.append('only_selected_device', filters.only_selected_device ? 'true' : 'false');
+                }
+                // 若存在 group_size，则传递
+                if (typeof filters.group_size !== 'undefined') {
+                    params.append('group_size', String(filters.group_size));
+                }
+                
+                return `/graph_data/${deviceId}?${params.toString()}`;
+            }
+
+            // 加载拓扑图数据
+            function loadTopologyData(deviceId, filters = null) {
+                if (!deviceId) return;
+                
+                const currentFilters = filters || getCurrentFilters();
+                const apiUrl = buildApiUrl(deviceId, currentFilters);
+                
+                // 清空容器，显示加载提示
+                container.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div><strong class="ms-3">正在加载拓扑图...</strong></div>';
+
+                // 调用后端的API获取拓扑图数据
+                fetch(apiUrl)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('网络响应错误，无法获取数据');
+                        }
+                        return response.json();
+                    })
+                    .then(response => {
+                        // 检查API响应格式，兼容不同的返回结构
+                        const data = response.data || response;
+                        
+                        // 验证数据完整性
+                        if (!data.nodes || !data.edges) {
+                            throw new Error('API返回的数据格式不正确，缺少nodes或edges字段');
+                        }
+                        
+                        // 应用节点样式和格式化标签
+                        const styledNodes = data.nodes.map(node => {
+                            return {
+                                ...node,
+                                label: formatNodeLabel(node.label),
+                                ...getNodeStyle(node)
+                            };
+                        });
+                        
+                        // 将获取到的节点和边数据包装成vis.js需要的数据集格式
+                        const graphData = {
+                            nodes: new vis.DataSet(styledNodes),
+                            edges: new vis.DataSet(data.edges)
+                        };
+
+                        // 如果已存在网络图实例，先销毁
+                        if (network) {
+                            network.destroy();
+                        }
+                        
+                        // 根据布局类型调整配置
+                        const currentFilters = getCurrentFilters();
+                        if (currentFilters.level === 'port' && currentFilters.layout_type === 'bus') {
+                            // 总线式布局配置
+                            options.layout = {
+                                randomSeed: 2,
+                                improvedLayout: true,
+                                clusterThreshold: 150,
+                                hierarchical: {
+                                    enabled: true,
+                                    levelSeparation: 150,
+                                    nodeSpacing: 100,
+                                    treeSpacing: 200,
+                                    blockShifting: true,
+                                    edgeMinimization: true,
+                                    parentCentralization: true,
+                                    direction: 'LR',        // 左右布局
+                                    sortMethod: 'directed'   // 按连接方向排序
+                                }
+                            };
+                            
+                            // 调整物理引擎参数以适应总线布局
+                            options.physics.solver = 'hierarchicalRepulsion';
+                            options.physics.hierarchicalRepulsion = {
+                                centralGravity: 0.0,
+                                springLength: 100,
+                                springConstant: 0.01,
+                                nodeDistance: 120,
+                                damping: 0.09
+                            };
+                        } else {
+                            // 标准布局配置
+                            options.layout = {
+                                randomSeed: 2,
+                                improvedLayout: true,
+                                clusterThreshold: 150
+                            };
+                            
+                            // 恢复标准物理引擎参数
+                            options.physics.solver = 'repulsion';
+                        }
+                        
+                        // 创建新的vis.Network实例，并传入容器、数据和配置
+                        network = new vis.Network(container, graphData, options);
+                        
+                        // 添加网络事件监听
+                        network.on('click', function(params) {
+                            if (params.nodes.length > 0) {
+                                const nodeId = params.nodes[0];
+                                console.log('点击节点:', nodeId);
+                                // 这里可以添加节点点击事件处理逻辑
+                            }
+                        });
+                        
+                        // 添加节点悬停事件监听
+                        network.on('hoverNode', function(params) {
+                            const nodeId = params.node;
+                            const node = graphData.nodes.get(nodeId);
+                            
+                            if (node && node.nodeType) {
+                                showNodeTooltip(node, params.pointer.DOM);
+                            }
+                        });
+                        
+                        // 鼠标离开节点时隐藏提示框
+                        network.on('blurNode', function(params) {
+                            hideNodeTooltip();
+                        });
+                        
+                        // 优化拖动行为：拖动时临时启用物理引擎
+                        network.on('dragStart', function(params) {
+                            if (params.nodes.length > 0) {
+                                // 拖动开始时，临时启用物理引擎但固定其他节点
+                                network.setOptions({physics: {enabled: true}});
+                                const allNodes = graphData.nodes.get();
+                                const draggedNodeId = params.nodes[0];
+                                
+                                allNodes.forEach(node => {
+                                    if (node.id !== draggedNodeId) {
+                                        graphData.nodes.update({id: node.id, fixed: {x: true, y: true}});
+                                    }
+                                });
+                            }
+                        });
+                        
+                        network.on('dragEnd', function(params) {
+                            if (params.nodes.length > 0) {
+                                // 拖动结束后，快速禁用物理引擎并释放节点固定状态
+                                const allNodes = graphData.nodes.get();
+                                
+                                allNodes.forEach(node => {
+                                    graphData.nodes.update({id: node.id, fixed: {x: false, y: false}});
+                                });
+                                
+                                // 短暂延迟后禁用物理引擎，防止自动重排
+                                setTimeout(() => {
+                                    network.setOptions({physics: {enabled: false}});
+                                }, 100);
+                            }
+                        });
+                        
+                        // 稳定化完成后的处理
+                        network.on('stabilizationIterationsDone', function() {
+                            console.log('网络布局稳定化完成');
+                            // 可以在这里添加稳定化完成后的处理逻辑
+                        });
+                        
+                        // 初始化时适应视图，但不使用动画以保持稳定
+                        network.fit({
+                            animation: false
+                        });
+                        
+                        // 稳定化后禁用物理引擎以防止自动重排
+                        network.once('stabilizationIterationsDone', function() {
+                            setTimeout(() => {
+                                network.setOptions({physics: {enabled: false}});
+                            }, 500);
+                        });
+                    })
+                    .catch(error => {
+                        // 如果API调用失败，在容器中显示错误信息
+                        console.error('获取拓扑数据失败:', error);
+                        container.innerHTML = `<div class="alert alert-danger" role="alert">加载拓扑图失败: ${error.message}</div>`;
+                    });
+            }
+
+            // 格式化节点标签，将机房名称和设备名称分行显示
+            function formatNodeLabel(originalLabel) {
+                if (!originalLabel) return '';
+                
+                // 查找机房名称结束的位置（通常以"_"分隔）
+                const parts = originalLabel.split('_');
+                if (parts.length >= 2) {
+                    const roomName = parts[0]; // 机房名称
+                    const deviceName = parts.slice(1).join('_'); // 设备名称（可能包含多个下划线）
+                    
+                    // 使用换行符进行分行显示，不使用HTML标签
+                    return `${roomName}\n${deviceName}`;
+                } else {
+                    // 如果没有下划线分隔，直接返回原标签
+                    return originalLabel;
+                }
+            }
+            
+            // 显示节点悬停提示框
+            function showNodeTooltip(node, position) {
+                // 移除已存在的提示框
+                hideNodeTooltip();
+                
+                // 创建提示框元素
+                const tooltip = document.createElement('div');
+                tooltip.id = 'node-tooltip';
+                tooltip.className = 'node-tooltip';
+                
+                // 根据节点类型生成不同的提示内容
+                let tooltipContent = '';
+                
+                if (node.nodeType === 'bus') {
+                    // 总线节点提示信息
+                    tooltipContent = `
+                        <div class="tooltip-header">总线节点</div>
+                        <div class="tooltip-content">
+                            <div><strong>设备:</strong> ${node.deviceName || '未知'}</div>
+                            <div><strong>端口数量:</strong> ${node.portCount || 0}</div>
+                            <div><strong>电流方向:</strong> ${node.direction || '未知'}</div>
+                        </div>
+                    `;
+                } else if (node.nodeType === 'port') {
+                    // 端口节点提示信息
+                    tooltipContent = `
+                        <div class="tooltip-header">端口节点</div>
+                        <div class="tooltip-content">
+                            <div><strong>设备:</strong> ${node.deviceName || '未知'}</div>
+                            <div><strong>端口:</strong> ${node.portName || '未知'}</div>
+                            <div><strong>电流方向:</strong> ${node.direction || '未知'}</div>
+                            ${node.voltage ? `<div><strong>电压等级:</strong> ${node.voltage}</div>` : ''}
+                            ${node.current ? `<div><strong>额定电流:</strong> ${node.current}</div>` : ''}
+                        </div>
+                    `;
+                } else {
+                    // 设备节点提示信息
+                    tooltipContent = `
+                        <div class="tooltip-header">设备节点</div>
+                        <div class="tooltip-content">
+                            <div><strong>设备名称:</strong> ${node.label || '未知'}</div>
+                            <div><strong>设备类型:</strong> ${node.deviceType || '未知'}</div>
+                            <div><strong>站点:</strong> ${node.station || '未知'}</div>
+                        </div>
+                    `;
+                }
+                
+                tooltip.innerHTML = tooltipContent;
+                
+                // 设置提示框位置
+                tooltip.style.position = 'absolute';
+                tooltip.style.left = (position.x + 10) + 'px';
+                tooltip.style.top = (position.y - 10) + 'px';
+                tooltip.style.zIndex = '9999';
+                
+                // 添加到页面
+                document.body.appendChild(tooltip);
+            }
+            
+            // 隐藏节点悬停提示框
+            function hideNodeTooltip() {
+                const existingTooltip = document.getElementById('node-tooltip');
+                if (existingTooltip) {
+                    existingTooltip.remove();
+                }
+            }
+            
+
+
+            // 根据设备类型获取节点样式
+            function getNodeStyle(node) {
+                const deviceType = node.device_type || '';
+                let color = '#97C2FC'; // 默认颜色
+                let shape = 'box';
+                
+                // 根据设备类型设置不同的颜色和形状
+                switch (deviceType) {
+                    case '发电机组':
+                        color = '#FF6B6B'; // 红色
+                        shape = 'diamond';
+                        break;
+                    case 'UPS':
+                        color = '#4ECDC4'; // 青色
+                        shape = 'box';
+                        break;
+                    case '变压器':
+                        color = '#45B7D1'; // 蓝色
+                        shape = 'triangle';
+                        break;
+                    case '高压配电柜':
+                        color = '#96CEB4'; // 绿色
+                        shape = 'box';
+                        break;
+                    case '低压配电柜':
+                        color = '#FFEAA7'; // 黄色
+                        shape = 'box';
+                        break;
+                    case 'ATS柜':
+                        color = '#DDA0DD'; // 紫色
+                        shape = 'box';
+                        break;
+                    case '直流控制屏':
+                        color = '#F0A500'; // 橙色
+                        shape = 'box';
+                        break;
+                    default:
+                        color = '#97C2FC'; // 默认蓝色
+                        shape = 'box';
+                }
+                
+                return {
+                    color: {
+                        background: color,
+                        border: '#2B7CE9',
+                        highlight: {
+                            background: color,
+                            border: '#2B7CE9'
+                        }
+                    },
+                    shape: shape
+                };
+            }
+
+            // 重置筛选条件
+            function resetFilters() {
+                levelSelect.value = 'device';
+                stationSelect.value = '';
+                deviceTypeSelect.value = '';
+                connectionTypeSelect.value = '';
+                criticalOnlyCheck.checked = false;
+                // 复位仅A端视图：默认选中，但仅当端口级+总线布局时对后端生效
+                if (onlySelectedDeviceCheck) {
+                    onlySelectedDeviceCheck.checked = true;
+                }
+                // 重置显隐：恢复到设备级，隐藏布局与A端开关
+                layoutTypeContainer.style.display = 'none';
+                onlySelectedDeviceContainer.style.display = 'none';
+                if (groupSizeContainer && groupSizeInput) {
+                    groupSizeContainer.style.display = 'none';
+                    groupSizeInput.value = '12';
+                }
+                // 隐藏批量操作按钮
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value = '12';
+                }
+                if (busGroupActions) busGroupActions.style.display = 'none';
+                groupSizeInput.value =

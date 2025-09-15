@@ -437,6 +437,10 @@
 
             // 加载网络拓扑图数据
             function loadTopologyData(deviceId, filters = null) {
+                // 兜底：若未显式传入，则使用当前选中设备ID
+                if (!deviceId) {
+                    deviceId = currentDeviceId || (deviceSelect && deviceSelect.value);
+                }
                 if (!deviceId) return;
                 
                 const currentFilters = filters || getCurrentFilters();
@@ -483,7 +487,7 @@
                                 if (selectedPortsCount > 20) {
                                     layoutTypeSelect.value = 'bus';
                                     // 若存在级联依赖的 UI 逻辑（监听 change），可主动触发；此处直接重载数据更稳妥
-                                    loadTopologyData();
+                                    loadTopologyData(currentDeviceId);
                                     return; // 终止后续流程，等待总线布局的重新渲染
                                 }
                             }
@@ -673,7 +677,6 @@
                                     graphData.edges.add({
                                         from: centerDeviceNodeId,
                                         to: bn.id,
-                                        arrows: '' ,
                                         arrows: '' ,
                                         color: { color: '#6AA6FF' },
                                         dashes: true
@@ -882,11 +885,11 @@
 
                                 if (patches.length) graphData.nodes.update(patches);
 
-                                // 根据边类型设置线型：设备-总线 虚线；总线-端口、端口-端口 实线
+                                // 根据边类型设置线型：设备-总线 虚线；总线-端口、端口-端口 实线；并统一关闭箭头，强制直线
                                 const edgePatches = allEdges.map(e => {
                                     const t = typeOfEdge(e);
-                                    if (t === 'device_bus_connection') return { id: e.id, dashes: true, arrows: '' };
-                                    if (t === 'bus_connection' || t === 'port_connection') return { id: e.id, dashes: false };
+                                    if (t === 'device_bus_connection') return { id: e.id, dashes: true, arrows: '', smooth: false };
+                                    if (t === 'bus_connection' || t === 'port_connection') return { id: e.id, dashes: false, arrows: '', smooth: false };
                                     return null;
                                 }).filter(Boolean);
                                 if (edgePatches.length) graphData.edges.update(edgePatches);
