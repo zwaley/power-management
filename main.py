@@ -25,16 +25,39 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from pydantic import BaseModel
 import re
 from sqlalchemy import and_
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy import func, or_
+import pandas as pd
+from typing import List, Optional
+from urllib.parse import quote
+import io
+import traceback # 导入 traceback 用于打印详细的错误堆栈
+from datetime import datetime, timedelta, date
+import re
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils.dataframe import dataframe_to_rows
+from pydantic import BaseModel
+import re
+from sqlalchemy import and_
 
-# 导入配置
+# Import configuration
 from config import ADMIN_PASSWORD, PORT
 
-# 修正了导入，使用正确的函数名和模型
+# Fixed imports, using correct function names and models
 from models import SessionLocal, Device, Connection, LifecycleRule, create_db_and_tables
 from device_types import STANDARD_DEVICE_TYPES, validate_device_type, get_device_type_suggestions, STANDARD_DEVICE_TYPES
 
 
-# --- 端口统计服务类 ---
+# Import error tracking system
+from topology_error_tracker import topology_error_tracker, ErrorCategory, ErrorLevel
+
+
+# --- Port Statistics Service Class ---
 
 class PortStatisticsService:
     """端口统计服务类，用于处理设备端口使用情况的统计分析"""
@@ -45,22 +68,22 @@ class PortStatisticsService:
     def _get_device_port_summary(self) -> dict:
         """获取设备端口总览 - 采用集合统计逻辑，统计所有有连接的端口"""
         try:
-            # 统计总设备数
+            # Count total devices
             total_devices = self.db.query(Device).count()
             
-            # 使用集合来避免重复计算同一个端口
+            # Use sets to avoid duplicate counting of the same port
             all_ports = set()
             connected_ports = set()
             
-            # 获取所有连接记录
+            # Get all connection records
             connections = self.db.query(Connection).all()
             
             for conn in connections:
-                # 统计源端口（A端）
+                # Count source ports (A side)
                 if conn.source_fuse_number and conn.source_device_id:
                     port_key = f"device_{conn.source_device_id}_fuse_{conn.source_fuse_number}"
                     all_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # Determine port status by checking if connection_type field is empty
                     if conn.connection_type and conn.connection_type.strip():
                         connected_ports.add(port_key)
                         
@@ -71,7 +94,7 @@ class PortStatisticsService:
                     if conn.connection_type and conn.connection_type.strip():
                         connected_ports.add(port_key)
                 
-                # 统计目标端口（B端）- 符合设计文档中"一个连接占用两个端口"的要求
+                # Count target ports (B side) - meets the design document requirement of "one connection occupies two ports"
                 if conn.target_fuse_number and conn.target_device_id:
                     port_key = f"device_{conn.target_device_id}_fuse_{conn.target_fuse_number}"
                     all_ports.add(port_key)
@@ -160,7 +183,7 @@ class PortStatisticsService:
                         ports.append(port_info)
                         port_usage_map[port_key] = port_info
             
-            # 如果没有找到任何端口，返回空列表（表示该设备没有配置端口或没有连接记录）
+            # If no ports are found, return an empty list (indicating the device has no port configuration or connection records)
             if not ports:
                 return {
                     "device_info": {
@@ -179,7 +202,7 @@ class PortStatisticsService:
                     "ports": []
                 }
             
-            # 统计信息
+            # Statistics
             total_ports = len(ports)
             connected_ports = len([p for p in ports if p["status"] == "已连接"])
             idle_ports = total_ports - connected_ports
@@ -222,294 +245,903 @@ class PortStatisticsService:
         else:
             return "未知"
 
-
-
-class AnalyticsService:
-    """统计分析服务类，用于处理高级统计分析功能"""
+# --- Port topology service class ---
+class PortTopologyService:
+    """Port topology service class for generating port topology data"""
     
     def __init__(self, db: Session):
         self.db = db
     
-    def get_utilization_rates(self) -> dict:
-        """获取使用率分析数据"""
+    def get_port_service_data(self, device_id: int, mode: str = "all") -> dict:
+        """
+        获取端口拓扑图数据 - 服务层方法
+        
+        Args:
+            device_id: 设备ID
+            mode: 显示模式，可选 'all' 或 'used'
+        
+        Returns:
+            包含节点和边的拓扑图数据
+        """
         try:
-            # 1. 端口总体使用率
-            overall_utilization = self._calculate_overall_utilization()
+            # Get the center device
+            logger.info(f"查询中心设备，设备ID: {device_id}")
+            center_device = self.db.query(Device).filter(Device.id == device_id).first()
+            if not center_device:
+                logger.error(f"设备不存在，设备ID: {device_id}")
+                raise HTTPException(status_code=404, detail="设备不存在")
             
-            # 2. 按设备类型统计使用率
-            device_type_utilization = self._calculate_device_type_utilization()
+            # Get all connections related to this device
+            logger.info(f"查询与设备ID {device_id} 相关的所有连接")
+            connections = self.db.query(Connection).filter(
+                (Connection.source_device_id == device_id) |
+                (Connection.target_device_id == device_id)
+            ).all()
             
-            # 3. 按站点统计使用率
-            station_utilization = self._calculate_station_utilization()
-            
-            return {
-                "overall_utilization": overall_utilization,
-                "device_type_utilization": device_type_utilization,
-                "station_utilization": station_utilization
-            }
-        except Exception as e:
-            print(f"获取使用率分析数据时出错: {e}")
-            raise HTTPException(status_code=500, detail=f"获取使用率分析失败: {str(e)}")
-    
-    def get_idle_rates(self) -> dict:
-        """获取空闲率分析数据"""
-        try:
-            # 1. 端口总体空闲率
-            overall_idle = self._calculate_overall_idle_rate()
-            
-            # 2. 按设备类型统计空闲率
-            device_type_idle = self._calculate_device_type_idle_rate()
-            
-            # 3. 按站点统计空闲率
-            station_idle = self._calculate_station_idle_rate()
-            
-            # 4. 空闲资源预警
-            idle_alerts = self._check_idle_rate_alerts()
-            
-            return {
-                "overall_idle_rate": overall_idle,
-                "device_type_idle_rate": device_type_idle,
-                "station_idle_rate": station_idle,
-                "idle_alerts": idle_alerts
-            }
-        except Exception as e:
-            print(f"获取空闲率分析数据时出错: {e}")
-            raise HTTPException(status_code=500, detail=f"获取空闲率分析失败: {str(e)}")
-    
-
-    
-    def get_summary_dashboard(self) -> dict:
-        """获取仪表板汇总数据"""
-        try:
-            # 获取关键指标
-            utilization_data = self.get_utilization_rates()
-            idle_data = self.get_idle_rates()
-            
-            # 构建仪表板数据
-            dashboard_data = {
-                "key_metrics": {
-                    "overall_utilization_rate": utilization_data["overall_utilization"]["utilization_rate"],
-                    "overall_idle_rate": idle_data["overall_idle_rate"]["idle_rate"],
-                    "total_devices": utilization_data["overall_utilization"]["total_devices"],
-                    "total_ports": utilization_data["overall_utilization"]["total_ports"],
-                    "connected_ports": utilization_data["overall_utilization"]["connected_ports"],
-                    "idle_ports": idle_data["overall_idle_rate"]["idle_ports"]
-                },
-                "alerts": idle_data["idle_alerts"],
-                "top_utilized_devices": self._get_top_utilized_devices(),
-                "distribution_charts": {
-                    "device_type_utilization": utilization_data["device_type_utilization"],
-                    "station_utilization": utilization_data["station_utilization"]
+            if not connections:
+                logger.info(f"设备ID {device_id} 没有相关连接")
+                return {
+                    "nodes": [],
+                    "edges": []
                 }
+            
+            # Build nodes and edges
+            nodes = []
+            edges = []
+            
+            # Add center device node
+            center_node = {
+                "id": f"device_{device_id}",
+                "label": center_device.name,
+                "type": "device",
+                "x": 0,
+                "y": 0,
+                "size": 20,
+                "color": "#848484"
             }
+            nodes.append(center_node)
             
-            return dashboard_data
+            # Process connections
+            left_ports = []
+            right_ports = []
+            port_count = 0
+            
+            for conn in connections:
+                # Check if display conditions are met
+                if mode == "used" and not conn.connection_type:
+                    continue  # 跳过空闲端口
+                
+                # Process source port (local)
+                if conn.source_device_id == device_id:
+                    source_port = conn.source_fuse_number or conn.source_breaker_number
+                    if source_port:
+                        port_count += 1
+                        port_id = f"port_{device_id}_{source_port}"
+                        port_label = f"{source_port}"
+                        
+                        # Distribute ports left/right based on count
+                        if port_count % 2 == 1:
+                            port_x = -100
+                            port_y = 50 + (port_count // 2) * 80
+                            port_side = "left"
+                        else:
+                            port_x = 100
+                            port_y = 50 + ((port_count - 1) // 2) * 80
+                            port_side = "right"
+                        
+                        port_node = {
+                            "id": port_id,
+                            "label": port_label,
+                            "type": "port",
+                            "x": port_x,
+                            "y": port_y,
+                            "size": 10,
+                            "color": "#848484"
+                        }
+                        nodes.append(port_node)
+                        
+                        # 添加连接线
+                        edge_id = f"edge_{device_id}_{source_port}"
+                        edge_data = {
+                            "id": edge_id,
+                            "from": f"device_{device_id}",
+                            "to": port_id,
+                            "width": 2,
+                            "color": "#848484",
+                            "cable_model": conn.cable_model,
+                            "remark": conn.remark,
+                            "arrows": {"to": {"enabled": True, "type": "arrow"}}
+                        }
+                        edges.append(edge_data)
+                        
+                        # 处理对端设备
+                        if conn.target_device:
+                            target_device = conn.target_device
+                            target_port = conn.target_fuse_number or conn.target_breaker_number
+                            
+                            # 创建对端设备节点
+                            target_node_id = f"target_{conn.target_device_id}"
+                            target_node = {
+                                "id": target_node_id,
+                                "label": f"{target_device.name} {target_port}",
+                                "type": "device",
+                                "x": port_x + (-150 if port_side == "left" else 150),
+                                "y": port_y,
+                                "size": 15,
+                                "color": "#848484"
+                            }
+                            nodes.append(target_node)
+                            
+                            # 添加连接线到对端设备
+                            edge_target_id = f"edge_{device_id}_{source_port}_target"
+                            edge_target_data = {
+                                "id": edge_target_id,
+                                "from": port_id,
+                                "to": target_node_id,
+                                "width": 2,
+                                "color": "#848484",
+                                "cable_model": conn.cable_model,
+                                "remark": conn.remark,
+                                "arrows": {"to": {"enabled": True, "type": "arrow"}}
+                            }
+                            edges.append(edge_target_data)
+                
+                # 处理目标端口（本端）
+                elif conn.target_device_id == device_id:
+                    target_port = conn.target_fuse_number or conn.target_breaker_number
+                    if target_port:
+                        port_count += 1
+                        port_id = f"port_{device_id}_{target_port}"
+                        port_label = f"{target_port}"
+                        
+                        # 根据端口数量决定左右分布
+                        if port_count % 2 == 1:
+                            port_x = -100
+                            port_y = 50 + (port_count // 2) * 80
+                            port_side = "left"
+                        else:
+                            port_x = 100
+                            port_y = 50 + ((port_count - 1) // 2) * 80
+                            port_side = "right"
+                        
+                        port_node = {
+                            "id": port_id,
+                            "label": port_label,
+                            "type": "port",
+                            "x": port_x,
+                            "y": port_y,
+                            "size": 10,
+                            "color": "#848484"
+                        }
+                        nodes.append(port_node)
+                        
+                        # 添加连接线
+                        edge_id = f"edge_{device_id}_{target_port}"
+                        edge_data = {
+                            "id": edge_id,
+                            "from": f"device_{device_id}",
+                            "to": port_id,
+                            "width": 2,
+                            "color": "#848484",
+                            "cable_model": conn.cable_model,
+                            "remark": conn.remark,
+                            "arrows": {"to": {"enabled": True, "type": "arrow"}}
+                        }
+                        edges.append(edge_data)
+                        
+                        # 处理对端设备
+                        if conn.source_device:
+                            source_device = conn.source_device
+                            source_port = conn.source_fuse_number or conn.source_breaker_number
+                            
+                            # 创建对端设备节点
+                            source_node_id = f"source_{conn.source_device_id}"
+                            source_node = {
+                                "id": source_node_id,
+                                "label": f"{source_device.name} {source_port}",
+                                "type": "device",
+                                "x": port_x + (-150 if port_side == "left" else 150),
+                                "y": port_y,
+                                "size": 15,
+                                "color": "#848484"
+                            }
+                            nodes.append(source_node)
+                            
+                            # 添加连接线到对端设备
+                            edge_source_id = f"edge_{device_id}_{target_port}_source"
+                            edge_source_data = {
+                                "id": edge_source_id,
+                                "from": port_id,
+                                "to": source_node_id,
+                                "width": 2,
+                                "color": "#848484",
+                                "cable_model": conn.cable_model,
+                                "remark": conn.remark,
+                                "arrows": {"to": {"enabled": True, "type": "arrow"}}
+                            }
+                            edges.append(edge_source_data)
+            
+            logger.info(f"成功生成端口拓扑图数据，节点数: {len(nodes)}, 边数: {len(edges)}")
+            return {
+                "nodes": nodes,
+                "edges": edges
+            }
         except Exception as e:
-            print(f"获取仪表板汇总数据时出错: {e}")
-            raise HTTPException(status_code=500, detail=f"获取仪表板汇总数据失败: {str(e)}")
-    
-    def _calculate_overall_utilization(self) -> dict:
-        """计算端口总体使用率"""
-        # 使用现有的PortStatisticsService逻辑
-        port_service = PortStatisticsService(self.db)
-        summary = port_service._get_device_port_summary()
+            logger.error(f"获取端口拓扑图数据时出错: {str(e)}")
+            traceback.print_exc()
+            # 返回标准格式的空数据，避免前端解析失败
+            return {
+                "nodes": [],
+                "edges": []
+            }
+
+# Create FastAPI application instance
+app = FastAPI(title="DC Asset Manager", description="Power Resource Management System")
+
+# Database session dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# Health check endpoints
+@app.get("/health")
+@app.get("/api/health")
+async def health_check(db: Session = Depends(get_db)):
+    """健康检查：验证服务与数据库可用性"""
+    try:
+        # 简单数据库连通性检查
+        device_count = db.query(func.count(Device.id)).scalar() or 0
+        return {
+            "status": "ok",
+            "db": "ok",
+            "device_count": int(device_count),
+            "port": PORT
+        }
+    except Exception as e:
+        topology_error_tracker.log_error(
+            category=ErrorCategory.DATABASE_ERROR,
+            level=ErrorLevel.ERROR,
+            message=f"健康检查失败: {str(e)}",
+            exception=e
+        )
+        raise HTTPException(status_code=500, detail="healthcheck failed")
+
+# Register port topology API endpoint
+@app.get("/api/port-topology/{device_id}")
+async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Session = Depends(get_db)):
+    """
+    获取设备的端口拓扑图数据 - 按照设计规范实现
+    """
+    try:
+        # 入参调试日志
+        topology_error_tracker.log_error(
+            category=ErrorCategory.DATA_LOADING,
+            level=ErrorLevel.DEBUG,
+            message="端口拓扑请求入参",
+            context={"device_id": device_id, "mode": mode}
+        )
+        # 获取设备信息
+        device = db.query(Device).filter(Device.id == device_id).first()
+        if not device:
+            topology_error_tracker.log_error(
+                category=ErrorCategory.DATA_LOADING,
+                level=ErrorLevel.WARNING,
+                message="请求的设备不存在",
+                context={"device_id": device_id}
+            )
+            raise HTTPException(status_code=404, detail="设备不存在")
+        
+        # 获取设备的所有连接
+        connections = db.query(Connection).filter(
+            or_(Connection.source_device_id == device_id, 
+                Connection.target_device_id == device_id)
+        ).all()
+        # 连接规模调试日志
+        topology_error_tracker.log_error(
+            category=ErrorCategory.PERFORMANCE,
+            level=ErrorLevel.DEBUG,
+            message="连接查询完成",
+            context={"device_id": device_id, "connections_count": len(connections)}
+        )
+        if len(connections) == 0:
+            topology_error_tracker.log_error(
+                category=ErrorCategory.DATA_LOADING,
+                level=ErrorLevel.WARNING,
+                message="未查询到任何连接记录",
+                context={"device_id": device_id}
+            )
+        
+        nodes = []
+        edges = []
+        
+        # 1. 添加中心设备节点
+        center_device_node = {
+            "id": f"device_{device_id}",
+            "label": device.name,  # 只显示设备名称
+            "type": "center_device",
+            "x": 0,
+            "y": 0,
+            "size": 30,
+            "color": "#3b82f6",
+            "shape": "box",
+            "font": {"size": 14, "color": "#ffffff"}
+        }
+        nodes.append(center_device_node)
+        
+        # 2. 处理端口和连接
+        port_positions = {"left": [], "right": []}
+        port_count = 0
+        
+        for conn in connections:
+            if conn.source_device_id == device_id:
+                # 本设备是源设备
+                port_name = conn.source_fuse_number or conn.source_breaker_number or f"端口{conn.id}"
+                remote_device = db.query(Device).filter(Device.id == conn.target_device_id).first()
+                # 改进目标端口名称生成逻辑，避免显示"未知端口"
+                if conn.target_fuse_number:
+                    remote_port = conn.target_fuse_number
+                elif conn.target_breaker_number:
+                    remote_port = conn.target_breaker_number
+                else:
+                    # 当目标端口信息缺失时，使用更有意义的标识
+                    remote_port = f"入线{conn.id}"
+                # 远端设备缺失告警
+                if not remote_device:
+                    topology_error_tracker.log_error(
+                        category=ErrorCategory.DATA_LOADING,
+                        level=ErrorLevel.WARNING,
+                        message="源端连接缺少远端设备",
+                        context={"connection_id": conn.id, "target_device_id": conn.target_device_id}
+                    )
+                
+                # 创建端口节点
+                port_node_id = f"port_{device_id}_{port_name}"
+                side = "left" if port_count % 2 == 0 else "right"
+                y_offset = (len(port_positions[side]) + 1) * 80
+                x_offset = -200 if side == "left" else 200
+                
+                port_node = {
+                    "id": port_node_id,
+                    "label": port_name,
+                    "type": "port",
+                    "x": x_offset,
+                    "y": y_offset,
+                    "size": 15,
+                    "color": "#10b981",
+                    "shape": "circle"
+                }
+                nodes.append(port_node)
+                port_positions[side].append(port_node_id)
+                
+                # 连接中心设备到端口
+                center_to_port_edge = {
+                    "id": f"center_to_{port_node_id}",
+                    "from": f"device_{device_id}",
+                    "to": port_node_id,
+                    "width": 2,
+                    "color": "#6b7280"
+                }
+                edges.append(center_to_port_edge)
+                
+                # 如果有连接的远程设备，创建远程设备节点
+                if remote_device:
+                    remote_node_id = f"remote_{remote_device.id}_{remote_port}"
+                    remote_x = x_offset + (-150 if side == "left" else 150)
+                    
+                    # 检查节点是否已存在，避免重复创建
+                    if not any(node["id"] == remote_node_id for node in nodes):
+                        remote_node = {
+                            "id": remote_node_id,
+                            "label": f"{remote_device.name}\n{remote_port}",
+                            "type": "remote_device",
+                            "x": remote_x,
+                            "y": y_offset,
+                            "size": 20,
+                            "color": "#f59e0b",
+                            "shape": "box"
+                        }
+                        nodes.append(remote_node)
+                    
+                    # 连接端口到远程设备
+                    port_to_remote_edge = {
+                        "id": f"{port_node_id}_to_{remote_node_id}",
+                        "from": port_node_id,
+                        "to": remote_node_id,
+                        "width": 2,
+                        "color": "#ef4444",
+                        "label": conn.cable_model or ""
+                    }
+                    edges.append(port_to_remote_edge)
+                
+                port_count += 1
+                
+            elif conn.target_device_id == device_id:
+                # 本设备是目标设备，处理逻辑类似
+                port_name = conn.target_fuse_number or conn.target_breaker_number or f"端口{conn.id}"
+                remote_device = db.query(Device).filter(Device.id == conn.source_device_id).first()
+                # 改进源端口名称生成逻辑，避免显示"未知端口"
+                if conn.source_fuse_number:
+                    remote_port = conn.source_fuse_number
+                elif conn.source_breaker_number:
+                    remote_port = conn.source_breaker_number
+                else:
+                    # 当源端口信息缺失时，使用更有意义的标识
+                    remote_port = f"出线{conn.id}"
+                # 远端设备缺失告警
+                if not remote_device:
+                    topology_error_tracker.log_error(
+                        category=ErrorCategory.DATA_LOADING,
+                        level=ErrorLevel.WARNING,
+                        message="目标端连接缺少远端设备",
+                        context={"connection_id": conn.id, "source_device_id": conn.source_device_id}
+                    )
+                
+                # 创建端口节点
+                port_node_id = f"port_{device_id}_{port_name}"
+                side = "left" if port_count % 2 == 0 else "right"
+                y_offset = (len(port_positions[side]) + 1) * 80
+                x_offset = -200 if side == "left" else 200
+                
+                port_node = {
+                    "id": port_node_id,
+                    "label": port_name,
+                    "type": "port",
+                    "x": x_offset,
+                    "y": y_offset,
+                    "size": 15,
+                    "color": "#10b981",
+                    "shape": "circle"
+                }
+                nodes.append(port_node)
+                port_positions[side].append(port_node_id)
+                
+                # 连接中心设备到端口
+                center_to_port_edge = {
+                    "id": f"center_to_{port_node_id}",
+                    "from": f"device_{device_id}",
+                    "to": port_node_id,
+                    "width": 2,
+                    "color": "#6b7280"
+                }
+                edges.append(center_to_port_edge)
+                
+                # 如果有连接的远程设备，创建远程设备节点
+                if remote_device:
+                    remote_node_id = f"remote_{remote_device.id}_{remote_port}"
+                    remote_x = x_offset + (-150 if side == "left" else 150)
+                    
+                    # 检查节点是否已存在，避免重复创建
+                    if not any(node["id"] == remote_node_id for node in nodes):
+                        remote_node = {
+                            "id": remote_node_id,
+                            "label": f"{remote_device.name}\n{remote_port}",
+                            "type": "remote_device",
+                            "x": remote_x,
+                            "y": y_offset,
+                            "size": 20,
+                            "color": "#f59e0b",
+                            "shape": "box"
+                        }
+                        nodes.append(remote_node)
+                    
+                    # 连接端口到远程设备
+                    port_to_remote_edge = {
+                        "id": f"{port_node_id}_to_{remote_node_id}",
+                        "from": port_node_id,
+                        "to": remote_node_id,
+                        "width": 2,
+                        "color": "#ef4444",
+                        "label": conn.cable_model or ""
+                    }
+                    edges.append(port_to_remote_edge)
+                
+                port_count += 1
+        
+        # 记录成功日志
+        topology_error_tracker.log_error(
+            category=ErrorCategory.API_SUCCESS,
+            level=ErrorLevel.INFO,
+            message=f"端口拓扑图数据生成成功",
+            context={
+                "device_id": device_id,
+                "device_name": device.name,
+                "nodes_count": len(nodes),
+                "edges_count": len(edges),
+                "mode": mode
+            }
+        )
+        
+        return {"nodes": nodes, "edges": edges}
+        
+    except Exception as e:
+        topology_error_tracker.log_error(
+            category=ErrorCategory.API_ERROR,
+            level=ErrorLevel.ERROR,
+            message=f"端口拓扑图API调用失败: {str(e)}",
+            context={"device_id": device_id, "traceback": traceback.format_exc()},
+            exception=e
+        )
+        return {"nodes": [], "edges": []}
+
+# 端口拓扑图数据生成函数
+def generate_port_topology_data(device_id: int):
+    """生成端口拓扑图数据"""
+    try:
+        with SessionLocal() as db:
+            device = db.query(Device).filter(Device.id == device_id).first()
+            if not device:
+                return {"nodes": [], "edges": []}
+            
+            nodes = []
+            edges = []
+            
+            # 获取设备的所有端口连接
+            connections = db.query(Connection).filter(
+                or_(Connection.source_device_id == device_id,
+                    Connection.target_device_id == device_id)
+            ).all()
+            
+            # 为每个端口创建节点
+            for conn in connections:
+                if conn.source_device_id == device_id:
+                    port_info = f"{conn.source_port}"
+                    connected_device = db.query(Device).filter(Device.id == conn.target_device_id).first()
+                    connected_port = conn.target_port
+                else:
+                    port_info = f"{conn.target_port}"
+                    connected_device = db.query(Device).filter(Device.id == conn.source_device_id).first()
+                    connected_port = conn.source_port
+                
+                # 创建端口节点
+                port_node = {
+                    "id": f"port_{conn.id}",
+                    "label": port_info,
+                    "type": "port",
+                    "x": 0,
+                    "y": len(nodes) * 100,
+                    "size": 15,
+                    "color": "#3b82f6",
+                    "shape": "circle"
+                }
+                nodes.append(port_node)
+                
+                # 创建连接的设备节点
+                if connected_device:
+                    device_node = {
+                        "id": f"device_{connected_device.id}",
+                        "label": f"{connected_device.name}\
+{connected_port}",
+                        "type": "connected_device",
+                        "x": 200,
+                        "y": len(nodes) * 100,
+                        "size": 20,
+                        "color": "#f59e0b",
+                        "shape": "box"
+                    }
+                    nodes.append(device_node)
+                    
+                    # 创建连接边
+                    edge = {
+                        "id": f"edge_{conn.id}",
+                        "from": f"port_{conn.id}",
+                        "to": f"device_{connected_device.id}",
+                        "width": 2,
+                        "color": "#6b7280",
+                        "label": conn.cable_model or ""
+                    }
+                    edges.append(edge)
+            
+            return {"nodes": nodes, "edges": edges}
+            
+    except Exception as e:
+        topology_error_tracker.log_error(
+            category=ErrorCategory.API_ERROR,
+            level=ErrorLevel.ERROR,
+            message=f"端口拓扑图数据生成失败: {str(e)}",
+            context={"device_id": device_id},
+            exception=e
+        )
+        return {"nodes": [], "edges": []}
+        
+        # 3. 按左右分区原则布局端口
+        port_names = list(port_info.keys())
+        total_ports = len(port_names)
+        left_ports = port_names[:total_ports//2 + total_ports%2]  # 左侧端口（奇数时多一个）
+        right_ports = port_names[total_ports//2 + total_ports%2:]  # 右侧端口
+        
+        # 4. 创建端口节点和连接
+        for i, port_name in enumerate(left_ports):
+            # 左侧端口
+            port_node_id = f"port_left_{i}"
+            port_x = -200
+            port_y = -100 + i * 80
+            
+            port_node = {
+                "id": port_node_id,
+                "label": port_name,
+                "type": "port",
+                "x": port_x,
+                "y": port_y,
+                "size": 15,
+                "color": "#10b981",
+                "shape": "ellipse",
+                "font": {"size": 12}
+            }
+            nodes.append(port_node)
+            
+            # 连接到中心设备
+            edge_to_center = {
+                "id": f"edge_center_{port_node_id}",
+                "from": f"device_{device_id}",
+                "to": port_node_id,
+                "width": 2,
+                "color": "#6b7280"
+            }
+            edges.append(edge_to_center)
+            
+            # 处理该端口的所有连接
+            for conn_info in port_info[port_name]:
+                conn = conn_info["connection"]
+                remote_device = conn_info["remote_device"]
+                remote_port = conn_info["remote_port"]
+                
+                if remote_device:
+                    # 创建对端设备节点
+                    remote_node_id = f"remote_{remote_device.id}_{remote_port}"
+                    remote_node = {
+                        "id": remote_node_id,
+                        "label": f"{remote_device.name}\
+{remote_port}",
+                        "type": "remote_device",
+                        "x": port_x - 150,
+                        "y": port_y,
+                        "size": 20,
+                        "color": "#f59e0b",
+                        "shape": "box",
+                        "font": {"size": 10}
+                    }
+                    nodes.append(remote_node)
+                    
+                    # 连接线颜色根据连接类型
+                    cable_color = "#fbbf24" if conn.connection_type == "交流" else "#ef4444" if conn.connection_type == "直流" else "#6b7280"
+                    
+                    # 箭头方向根据上下游关系
+                    arrows = {}
+                    if conn.upstream_downstream == "上游":
+                        arrows = {"to": {"enabled": True}} if conn_info["is_source"] else {"from": {"enabled": True}}
+                    elif conn.upstream_downstream == "下游":
+                        arrows = {"from": {"enabled": True}} if conn_info["is_source"] else {"to": {"enabled": True}}
+                    
+                    edge_to_remote = {
+                        "id": f"edge_{port_node_id}_{remote_node_id}",
+                        "from": port_node_id,
+                        "to": remote_node_id,
+                        "width": 3,
+                        "color": cable_color,
+                        "arrows": arrows,
+                        "label": conn.cable_model or "",
+                        "title": f"电缆型号: {conn.cable_model or 'N/A'}\
+备注: {conn.remark or 'N/A'}"
+                    }
+                    edges.append(edge_to_remote)
+        
+        # 右侧端口处理
+        for i, port_name in enumerate(right_ports):
+            port_node_id = f"port_right_{i}"
+            port_x = 200
+            port_y = -100 + i * 80
+            
+            port_node = {
+                "id": port_node_id,
+                "label": port_name,
+                "type": "port",
+                "x": port_x,
+                "y": port_y,
+                "size": 15,
+                "color": "#10b981",
+                "shape": "ellipse",
+                "font": {"size": 12}
+            }
+            nodes.append(port_node)
+            
+            # 连接到中心设备
+            edge_to_center = {
+                "id": f"edge_center_{port_node_id}",
+                "from": f"device_{device_id}",
+                "to": port_node_id,
+                "width": 2,
+                "color": "#6b7280"
+            }
+            edges.append(edge_to_center)
+            
+            # 处理该端口的所有连接
+            for conn_info in port_info[port_name]:
+                conn = conn_info["connection"]
+                remote_device = conn_info["remote_device"]
+                remote_port = conn_info["remote_port"]
+                
+                if remote_device:
+                    # 创建对端设备节点
+                    remote_node_id = f"remote_{remote_device.id}_{remote_port}"
+                    remote_node = {
+                        "id": remote_node_id,
+                        "label": f"{remote_device.name}\
+{remote_port}",
+                        "type": "remote_device",
+                        "x": port_x + 150,
+                        "y": port_y,
+                        "size": 20,
+                        "color": "#f59e0b",
+                        "shape": "box",
+                        "font": {"size": 10}
+                    }
+                    nodes.append(remote_node)
+                    
+                    # 连接线颜色根据连接类型
+                    cable_color = "#fbbf24" if conn.connection_type == "交流" else "#ef4444" if conn.connection_type == "直流" else "#6b7280"
+                    
+                    # 箭头方向根据上下游关系
+                    arrows = {}
+                    if conn.upstream_downstream == "上游":
+                        arrows = {"to": {"enabled": True}} if conn_info["is_source"] else {"from": {"enabled": True}}
+                    elif conn.upstream_downstream == "下游":
+                        arrows = {"from": {"enabled": True}} if conn_info["is_source"] else {"to": {"enabled": True}}
+                    
+                    edge_to_remote = {
+                        "id": f"edge_{port_node_id}_{remote_node_id}",
+                        "from": port_node_id,
+                        "to": remote_node_id,
+                        "width": 3,
+                        "color": cable_color,
+                        "arrows": arrows,
+                        "label": conn.cable_model or "",
+                        "title": f"电缆型号: {conn.cable_model or 'N/A'}\
+备注: {conn.remark or 'N/A'}"
+                    }
+                    edges.append(edge_to_remote)
+        
+        topology_error_tracker.log_error(
+            category=ErrorCategory.API_SUCCESS,
+            level=ErrorLevel.INFO,
+            message=f"端口拓扑图数据生成成功",
+            context={
+                "device_id": device_id,
+                "device_name": device.name,
+                "total_ports": total_ports,
+                "nodes_count": len(nodes),
+                "edges_count": len(edges)
+            }
+        )
+        
+        return {"nodes": nodes, "edges": edges}
+        
+    except Exception as e:
+        topology_error_tracker.log_error(
+            category=ErrorCategory.API_ERROR,
+            level=ErrorLevel.ERROR,
+            message=f"端口拓扑图API调用失败: {str(e)}",
+            context={"device_id": device_id},
+            exception=e
+        )
+        return {"nodes": [], "edges": []}
+
+# 端口拓扑图数据生成函数
+def generate_port_topology_data(device_id: int):
+    """生成端口拓扑图数据"""
+    try:
+        with SessionLocal() as db:
+            device = db.query(Device).filter(Device.id == device_id).first()
+            if not device:
+                return {"nodes": [], "edges": []}
+            
+            nodes = []
+            edges = []
+            
+            # 获取设备的所有端口连接
+            connections = db.query(Connection).filter(
+                or_(Connection.source_device_id == device_id,
+                    Connection.target_device_id == device_id)
+            ).all()
+            
+            # 为每个端口创建节点
+            for conn in connections:
+                if conn.source_device_id == device_id:
+                    port_info = f"{conn.source_port}"
+                    connected_device = db.query(Device).filter(Device.id == conn.target_device_id).first()
+                    connected_port = conn.target_port
+                else:
+                    port_info = f"{conn.target_port}"
+                    connected_device = db.query(Device).filter(Device.id == conn.source_device_id).first()
+                    connected_port = conn.source_port
+                
+                # 创建端口节点
+                port_node = {
+                    "id": f"port_{conn.id}",
+                    "label": port_info,
+                    "type": "port",
+                    "x": 0,
+                    "y": len(nodes) * 100,
+                    "size": 15,
+                    "color": "#3b82f6",
+                    "shape": "circle"
+                }
+                nodes.append(port_node)
+                
+                # 创建连接的设备节点
+                if connected_device:
+                    device_node = {
+                        "id": f"device_{connected_device.id}",
+                        "label": f"{connected_device.name}\
+{connected_port}",
+                        "type": "connected_device",
+                        "x": 200,
+                        "y": len(nodes) * 100,
+                        "size": 20,
+                        "color": "#f59e0b",
+                        "shape": "box"
+                    }
+                    nodes.append(device_node)
+                    
+                    # 创建连接边
+                    edge = {
+                        "id": f"edge_{conn.id}",
+                        "from": f"port_{conn.id}",
+                        "to": f"device_{connected_device.id}",
+                        "width": 2,
+                        "color": "#6b7280",
+                        "label": conn.cable_model or ""
+                    }
+                    edges.append(edge)
+            
+            return {"nodes": nodes, "edges": edges}
+            
+    except Exception as e:
+        topology_error_tracker.log_error(
+            category=ErrorCategory.API_ERROR,
+            level=ErrorLevel.ERROR,
+            message=f"端口拓扑图数据生成失败: {str(e)}",
+            context={"device_id": device_id},
+            exception=e
+        )
+        return {"nodes": [], "edges": []}
+
+        # 添加连接边
+        for conn in topology_data.get("connections", []):
+            edge = {
+                "id": conn["id"],
+                "from": conn["from_port_id"],
+                "to": conn["to_port_id"],
+                "label": conn.get("connection_type", ""),
+                "title": "连接类型: " + str(conn.get('connection_type', 'Unknown')) + ", 带宽: " + str(conn.get('bandwidth', 'N/A')),
+                "color": get_connection_edge_color(conn.get("status", "active")),
+                "width": 2,
+                "connectionData": conn
+            }
+            edges.append(edge)
         
         return {
-            "total_devices": summary["total_devices"],
-            "total_ports": summary["total_ports"],
-            "connected_ports": summary["connected_ports"],
-            "utilization_rate": summary["utilization_rate"]
+            "nodes": nodes,
+            "edges": edges,
+            "metadata": topology_data.get("metadata", {}),
+            "device": topology_data.get("device", {})
         }
-    
-    def _calculate_device_type_utilization(self) -> list:
-        """按设备类型计算使用率"""
-        try:
-            # 获取所有设备类型
-            device_types = self.db.query(Device.device_type).distinct().all()
-            device_type_stats = []
-            
-            for device_type_tuple in device_types:
-                device_type = device_type_tuple[0] or "未知类型"
-                
-                # 获取该类型的所有设备
-                devices = self.db.query(Device).filter(Device.device_type == device_type_tuple[0]).all()
-                device_ids = [d.id for d in devices]
-                
-                if not device_ids:
-                    continue
-                
-                # 统计该类型设备的端口使用情况
-                all_ports = set()
-                connected_ports = set()
-                
-                connections = self.db.query(Connection).filter(
-                    (Connection.source_device_id.in_(device_ids)) |
-                    (Connection.target_device_id.in_(device_ids))
-                ).all()
-                
-                for conn in connections:
-                    # 统计源端口
-                    if conn.source_device_id in device_ids:
-                        if conn.source_fuse_number:
-                            port_key = f"device_{conn.source_device_id}_fuse_{conn.source_fuse_number}"
-                            all_ports.add(port_key)
-                            if conn.connection_type and conn.connection_type.strip():
-                                connected_ports.add(port_key)
-                        if conn.source_breaker_number:
-                            port_key = f"device_{conn.source_device_id}_breaker_{conn.source_breaker_number}"
-                            all_ports.add(port_key)
-                            if conn.connection_type and conn.connection_type.strip():
-                                connected_ports.add(port_key)
-                    
-                    # 统计目标端口
-                    if conn.target_device_id in device_ids:
-                        if conn.target_fuse_number:
-                            port_key = f"device_{conn.target_device_id}_fuse_{conn.target_fuse_number}"
-                            all_ports.add(port_key)
-                            if conn.connection_type and conn.connection_type.strip():
-                                connected_ports.add(port_key)
-                        if conn.target_breaker_number:
-                            port_key = f"device_{conn.target_device_id}_breaker_{conn.target_breaker_number}"
-                            all_ports.add(port_key)
-                            if conn.connection_type and conn.connection_type.strip():
-                                connected_ports.add(port_key)
-                
-                total_ports = len(all_ports)
-                connected_count = len(connected_ports)
-                utilization_rate = (connected_count / total_ports * 100) if total_ports > 0 else 0
-                
-                device_type_stats.append({
-                    "device_type": device_type,
-                    "device_count": len(devices),
-                    "total_ports": total_ports,
-                    "connected_ports": connected_count,
-                    "idle_ports": total_ports - connected_count,
-                    "utilization_rate": round(utilization_rate, 2)
-                })
-            
-            # 按使用率降序排序
-            device_type_stats.sort(key=lambda x: x["utilization_rate"], reverse=True)
-            return device_type_stats
-            
-        except Exception as e:
-            print(f"计算设备类型使用率时出错: {e}")
-            return []
-    
-    def _calculate_station_utilization(self) -> list:
-        """按站点计算使用率"""
-        try:
-            # 获取所有站点
-            stations = self.db.query(Device.station).distinct().all()
-            station_stats = []
-            
-            for station_tuple in stations:
-                station = station_tuple[0] or "未知站点"
-                
-                # 获取该站点的所有设备
-                devices = self.db.query(Device).filter(Device.station == station_tuple[0]).all()
-                device_ids = [d.id for d in devices]
-                
-                if not device_ids:
-                    continue
-                
-                # 统计该站点设备的端口使用情况
-                all_ports = set()
-                connected_ports = set()
-                
-                connections = self.db.query(Connection).filter(
-                    (Connection.source_device_id.in_(device_ids)) |
-                    (Connection.target_device_id.in_(device_ids))
-                ).all()
-                
-                for conn in connections:
-                    # 统计源端口
-                    if conn.source_device_id in device_ids:
-                        if conn.source_fuse_number:
-                            port_key = f"device_{conn.source_device_id}_fuse_{conn.source_fuse_number}"
-                            all_ports.add(port_key)
-                            if conn.connection_type and conn.connection_type.strip():
-                                connected_ports.add(port_key)
-                        if conn.source_breaker_number:
-                            port_key = f"device_{conn.source_device_id}_breaker_{conn.source_breaker_number}"
-                            all_ports.add(port_key)
-                            if conn.connection_type and conn.connection_type.strip():
-                                connected_ports.add(port_key)
-                    
-                    # 统计目标端口
-                    if conn.target_device_id in device_ids:
-                        if conn.target_fuse_number:
-                            port_key = f"device_{conn.target_device_id}_fuse_{conn.target_fuse_number}"
-                            all_ports.add(port_key)
-                            if conn.connection_type and conn.connection_type.strip():
-                                connected_ports.add(port_key)
-                        if conn.target_breaker_number:
-                            port_key = f"device_{conn.target_device_id}_breaker_{conn.target_breaker_number}"
-                            all_ports.add(port_key)
-                            if conn.connection_type and conn.connection_type.strip():
-                                connected_ports.add(port_key)
-                
-                total_ports = len(all_ports)
-                connected_count = len(connected_ports)
-                utilization_rate = (connected_count / total_ports * 100) if total_ports > 0 else 0
-                
-                station_stats.append({
-                    "station": station,
-                    "device_count": len(devices),
-                    "total_ports": total_ports,
-                    "connected_ports": connected_count,
-                    "idle_ports": total_ports - connected_count,
-                    "utilization_rate": round(utilization_rate, 2)
-                })
-            
-            # 按使用率降序排序
-            station_stats.sort(key=lambda x: x["utilization_rate"], reverse=True)
-            return station_stats
-            
-        except Exception as e:
-            print(f"计算站点使用率时出错: {e}")
-            return []
-    
-    def _calculate_overall_idle_rate(self) -> dict:
-        """计算端口总体空闲率"""
-        overall_utilization = self._calculate_overall_utilization()
-        total_ports = overall_utilization["total_ports"]
-        connected_ports = overall_utilization["connected_ports"]
-        idle_ports = total_ports - connected_ports
-        idle_rate = (idle_ports / total_ports * 100) if total_ports > 0 else 0
-        
-        return {
-            "total_ports": total_ports,
-            "idle_ports": idle_ports,
-            "connected_ports": connected_ports,
-            "idle_rate": round(idle_rate, 2)
-        }
-    
-    def _calculate_device_type_idle_rate(self) -> list:
-        """按设备类型计算空闲率"""
-        device_type_utilization = self._calculate_device_type_utilization()
-        
-        for item in device_type_utilization:
-            idle_rate = 100 - item["utilization_rate"]
-            item["idle_rate"] = round(idle_rate, 2)
-        
-        # 按空闲率降序排序
-        device_type_utilization.sort(key=lambda x: x["idle_rate"], reverse=True)
-        return device_type_utilization
-    
-    def _calculate_station_idle_rate(self) -> list:
-        """按站点计算空闲率"""
-        station_utilization = self._calculate_station_utilization()
-        
-        for item in station_utilization:
-            idle_rate = 100 - item["utilization_rate"]
-            item["idle_rate"] = round(idle_rate, 2)
-        
-        # 按空闲率降序排序
+    except HTTPException as e:
+        logger.error(f"HTTP异常: {e.detail}")
+        raise e
+    except Exception as e:
+        logger.error(f"获取端口拓扑图数据时出错: {str(e)}")
+        traceback.print_exc()
+        # 返回标准格式的空数据，避免前端解析失败
+        return JSONResponse(content={"nodes": [], "edges": []}, status_code=500)
+
         station_utilization.sort(key=lambda x: x["idle_rate"], reverse=True)
         return station_utilization
     
     def _check_idle_rate_alerts(self) -> list:
-        """检查空闲率预警"""
+        """Check idle rate alerts"""
         alerts = []
         
         # 检查总体空闲率
@@ -551,7 +1183,7 @@ class AnalyticsService:
 
     
     def _calculate_port_capacity_distribution(self) -> dict:
-        """计算端口容量分布"""
+        """Calculate port capacity distribution"""
         try:
             # 统计不同规格端口的使用分布
             connections = self.db.query(Connection).all()
@@ -1042,11 +1674,6 @@ def verify_admin_password(password: str) -> bool:
 
 # --- FastAPI 应用设置 ---
 
-app = FastAPI(
-    title="安吉电信动力设备管理系统",
-    description="一个用于管理和可视化动力设备资产的Web应用。",
-    version="1.1.0" # 版本升级
-)
 
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -1728,35 +2355,32 @@ async def upload_excel(file: UploadFile = File(...), password: str = Form(...), 
                         
                         # 处理连接类型 - 修复空闲端口被错误归类为电缆的问题
                         connection_type_raw = row.get('连接类型（交流/直流）')  # 修正：使用实际Excel列名
+                        # 规则：空值 -> None；非空则按映射表转换，无法映射也置 None 并记录警告
+                        connection_type = None
                         if pd.isna(connection_type_raw) or str(connection_type_raw).strip() == '':
-                            # 如果连接类型为空，说明是空闲端口，不设置连接类型
                             connection_type = None
                         else:
-                            connection_type_raw = str(connection_type_raw).strip()
-                            # 修复：当无法映射时，设置为None而不是默认的'cable'
-                            # 这样可以避免空闲端口被错误归类为电缆连接
-                            connection_type = CONNECTION_TYPE_MAPPING.get(connection_type_raw, None)
-                            
-                            # 如果连接类型仍然无法识别，记录警告但不设置为cable
-                            if connection_type_raw not in CONNECTION_TYPE_MAPPING:
-                                print(f"  * 警告：第 {index+2} 行连接类型 '{connection_type_raw}' 无法识别，设置为空闲端口")
-                                warnings.append(f"第 {index+2} 行：连接类型 '{connection_type_raw}' 无法识别")
-                        
-                        # 检查是否已存在相同连接
+                            raw = str(connection_type_raw).strip()
+                            connection_type = CONNECTION_TYPE_MAPPING.get(raw, None)
+                            if raw not in CONNECTION_TYPE_MAPPING:
+                                print(f"  * 警告：第 {index+2} 行连接类型 '{raw}' 无法识别，设置为空闲端口")
+                                warnings.append(f"第 {index+2} 行：连接类型 '{raw}' 无法识别")
+
+                        # 检查是否已存在相同连接（按设备与端口维度去重）
                         existing_connection = db.query(Connection).filter(
                             Connection.source_device_id == source_device.id,
                             Connection.target_device_id == target_device.id,
                             Connection.source_port == source_port,
                             Connection.target_port == target_port
                         ).first()
-                        
+
                         if existing_connection:
                             skip_reason = "连接已存在"
                             print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
                             sheet2_skipped_rows.append((index+2, skip_reason))
                             continue
-                        
-                        # 创建连接对象
+
+                        # 创建连接记录（保留现有字段，未设置 cable_type，避免误用）
                         connection = Connection(
                             source_device_id=source_device.id,
                             target_device_id=target_device.id,
@@ -1788,7 +2412,7 @@ async def upload_excel(file: UploadFile = File(...), password: str = Form(...), 
                             # 安装日期（Excel中没有此字段，设置为None）
                             installation_date=None
                         )
-                        
+
                         db.add(connection)
                         sheet2_connections_count += 1
                         print(f"  - 第 {index+2} 行：准备创建从 '{source_device_name}' 到 '{target_device_name}' 的连接")
@@ -2026,8 +2650,6 @@ async def create_device(
         asset_id=asset_id,
         name=name,
         station=station,
-        model=model,
-        device_type=device_type,
         location=location,
         power_rating=power_rating,
         vendor=vendor,
@@ -2038,152 +2660,162 @@ async def create_device(
     db.commit()
     return RedirectResponse(url="/", status_code=303)
 
-@app.get("/graph_data/{device_id}")
+def _adjust_color_brightness(hex_color: str, factor: float) -> str:
+    """调整颜色亮度"""
+    try:
+        # 移除 # 符号
+        hex_color = hex_color.lstrip('#')
+        
+        # 转换为 RGB
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        
+        # 调整亮度
+        r = min(255, max(0, int(r * factor)))
+        g = min(255, max(0, int(g * factor)))
+        b = min(255, max(0, int(b * factor)))
+        
+        # 转换回十六进制
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except:
+        return hex_color  # 如果转换失败，返回原色
+
+
+def _get_device_lifecycle_status(device: Device, db: Session) -> str:
+    """计算设备的生命周期状态 - 复用已有的完整实现逻辑"""
+    try:
+        from datetime import datetime
+        import re
+        
+        # 查找对应的生命周期规则
+        rule = db.query(LifecycleRule).filter(
+            LifecycleRule.device_type == device.device_type,
+            LifecycleRule.is_active == "true"
+        ).first()
+        
+        if not rule:
+            return "未配置规则"
+        
+        # 解析投产日期
+        if not device.commission_date:
+            return "投产日期未知"
+            
+        try:
+            # 计算设备年龄（年）
+            age_years = (datetime.now().date() - device.commission_date).days / 365.25
+            
+            # 根据规则判断状态
+            if age_years < rule.suggested_scrap_age * 0.7:
+                return "在用"
+            elif age_years < rule.suggested_scrap_age:
+                return "即将报废"
+            else:
+                return "已超期"
+        except Exception as e:
+            print(f"计算设备年龄失败: {str(e)}")
+            return "计算失败"
+    except Exception as e:
+        print(f"计算生命周期状态失败: {str(e)}")
+        return "未知"
+
+
+
+
+
+def _get_device_lifecycle_status(device: Device, db: Session) -> str:
+    """计算设备的生命周期状态 - 复用已有的完整实现逻辑"""
+    try:
+        from datetime import datetime
+        import re
+        
+        # 查找对应的生命周期规则
+        rule = db.query(LifecycleRule).filter(
+            LifecycleRule.device_type == device.device_type,
+            LifecycleRule.is_active == "true"
+        ).first()
+        
+        # 如果没有找到规则，返回未知
+        if not rule:
+            return "未知"
+            
+        # 计算设备年龄
+        if not device.commission_date:
+            return "未知"
+            
+        age_years = (datetime.now().date() - device.commission_date).days / 365.25
+        
+        # 根据规则判断状态
+        if age_years < rule.suggested_scrap_age * 0.7:
+            return "在用"
+        elif age_years < rule.suggested_scrap_age:
+            return "即将报废"
+        else:
+            return "已超期"
+            
+    except Exception as e:
+        print(f"计算生命周期状态失败: {str(e)}")
+        return "未知"
+
+
+# 新增API路径：/api/power-chain/{device_id} - 与/graph_data/{device_id}功能相同，保持向后兼容
+
+
+# 新增API路径：/api/power-chain/{device_id} - 与/graph_data/{device_id}功能相同，保持向后兼容
+@app.get("/api/power-chain/{device_id}")
 async def get_graph_data(
-    device_id: int, 
+    device_id: int,
     level: str = Query("device", regex="^(device|port)$", description="显示级别：device=设备级，port=端口级"),
     layout_type: str = Query("standard", regex="^(standard|bus)$", description="布局类型：standard=标准布局，bus=总线式布局"),
-    station: Optional[str] = Query(None, description="按站点筛选"),
-    device_type: Optional[str] = Query(None, description="按设备类型筛选"),
-    connection_type: Optional[str] = Query(None, description="按连接类型筛选"),
-    show_critical_only: bool = Query(False, description="仅显示关键设备"),
-    group_size: int = Query(12, ge=1, le=100, description="总线分组大小（每条总线包含的端口数量），默认12"),
-    only_selected_device: bool = Query(True, description="仅A端视图：true=只展示选中设备侧端口连接，false=展示双端设备"),
+    connection_type: str = Query(None, description="连接类型筛选条件"),
+    station: str = Query(None, description="站点筛选条件"),
+    device_type: str = Query(None, description="设备类型筛选条件"),
+    show_critical_only: bool = Query(False, description="是否只显示关键设备"),
+    only_selected_device: bool = Query(False, description="是否只显示选中设备"),
+    group_size: int = Query(1, description="总线式布局时每组端口数量"),
     db: Session = Depends(get_db)
 ):
-    """获取拓扑图数据，只显示与选中设备直接连接的设备"""
-    logger.info(f"/graph_data called: device_id={device_id}, level={level}, layout_type={layout_type}, station={station}, device_type={device_type}, connection_type={connection_type}, show_critical_only={show_critical_only}, group_size={group_size}, only_selected_device={only_selected_device}")
-    nodes = []
-    edges = []
-    processed_device_ids = set()
-    added_node_ids = set() # 用于跟踪已添加的节点ID
-
-    def add_node(node):
-        node_id = node.get("id")
-        if node_id in added_node_ids:
-            logger.warning(f"Attempted to add duplicate node with ID: {node_id}. Skipping.")
-            return
-        nodes.append(node)
-        added_node_ids.add(node_id)
-        logger.info(f"Added node with ID: {node_id}")
-
-    # 查找起始设备（选中的设备）
+    """获取拓扑图数据，按照用户需求格式化"""
+    logger.info(f"/graph_data called: device_id={device_id}, level={level}, layout_type={layout_type}, connection_type={connection_type}, station={station}, device_type={device_type}, show_critical_only={show_critical_only}, only_selected_device={only_selected_device}, group_size={group_size}")
+    
+    # 查找选中的设备
     selected_device = db.query(Device).filter(Device.id == device_id).first()
     if not selected_device:
         raise HTTPException(status_code=404, detail="Device not found")
-
-    # 首先添加选中的设备节点
-    if level == "port":
-        # 端口级显示：为选中设备的端口创建节点
-        if layout_type == "bus":
-            # 总线式布局：创建总线节点和端口节点（支持分组大小）
-            bus_data = _create_bus_topology_nodes(selected_device, db, group_size=group_size)
-            for node in bus_data['bus_nodes']:
-                add_node(node)
-            for node in bus_data['port_nodes']:
-                add_node(node)
-            edges.extend(bus_data['bus_port_edges'])
-
-            # 新增：中心设备节点（用于总线式布局的中心）
-            center_device_node = {
-                "id": f"device_{selected_device.id}",
-                "type": "device",
-                "node_type": "device",
-                "label": selected_device.name,
-                "title": f"设备: {selected_device.name}\n类型: {selected_device.device_type or 'N/A'}\n站点: {selected_device.station or 'N/A'}\n型号: {selected_device.model or 'N/A'}",
-                "device_id": selected_device.id,
-                "device_name": selected_device.name,
-                "device_type": selected_device.device_type,
-                "station": selected_device.station,
-                "model": selected_device.model,
-                "shape": "box",
-                "size": 30,
-                "color": {
-                    "background": "#546E7A",
-                    "border": "#37474F"
-                },
-                "font": {"size": 12, "color": "#FFFFFF"}
-            }
-            add_node(center_device_node)
-
-            # 新增：为每条总线创建 device->bus 连边（无箭头，虚线）
-            for b in bus_data['bus_nodes']:
-                if b.get('type') == 'bus':
-                    device_bus_edge = {
-                        "id": f"device_bus_{selected_device.id}_{b['id']}",
-                        "type": "device_bus_connection",
-                        "from": center_device_node['id'],
-                        "to": b['id'],
-                        "arrows": "none",
-                        "color": {"color": "#90A4AE", "width": 2, "opacity": 0.6},
-                        "dashes": [5, 5],
-                        "smooth": {"enabled": True, "type": "curvedCW", "roundness": 0.15},
-                        "length": 70
-                    }
-                    edges.append(device_bus_edge)
-        else:
-            # 标准布局：创建设备图标节点和端口节点
-            # 1. 创建设备图标节点 (Level 0)
-            device_icon_node = {
-                "id": f"device_{selected_device.id}",
-                "label": selected_device.name,
-                "title": f"设备: {selected_device.name}\n类型: {selected_device.device_type or 'N/A'}\n局站: {selected_device.station or 'N/A'}",
-                "node_type": "device_icon",
-                "device_id": selected_device.id,
-                "shape": "box",
-                "color": {
-                    "background": "#ff6b6b",
-                    "border": "#d63031"
-                },
-                "font": {
-                    "color": "white",
-                    "size": 14,
-                    "face": "Arial"
-                },
-                "size": 30,
-                "level": 0
-            }
-            add_node(device_icon_node)
-            
-            # 2. 创建选中设备的端口节点 (Level 1)
-            port_nodes = _create_port_nodes(selected_device, db, level=1)
-            for node in port_nodes:
-                add_node(node)
-            
-            # 3. 创建设备图标到端口的无方向连接线
-            for port_node in port_nodes:
-                if port_node.get('node_type') == 'selected_device_port':
-                    device_port_edge = {
-                        "id": f"device_port_{selected_device.id}_{port_node['id']}",
-                        "from": f"device_{selected_device.id}",
-                        "to": port_node['id'],
-                        "arrows": "none",
-                        "color": {
-                            "color": "#74b9ff",
-                            "width": 2
-                        },
-                        "smooth": {
-                            "enabled": True,
-                            "type": "curvedCW",
-                            "roundness": 0.2
-                        },
-                        "length": 100
-                    }
-                    edges.append(device_port_edge)
-    else:
-        # 设备级显示：为选中设备创建节点
-        lifecycle_status = _get_device_lifecycle_status(selected_device, db)
-        
-        node_data = {
-            "id": selected_device.id,
-            "label": selected_device.name,
-            "title": f"""资产编号: {selected_device.asset_id}\n名称: {selected_device.name}\n设备类型: {selected_device.device_type or 'N/A'}\n站点: {selected_device.station or 'N/A'}\n型号: {selected_device.model or 'N/A'}\n位置: {selected_device.location or 'N/A'}\n额定容量: {selected_device.power_rating or 'N/A'}\n生产厂家: {selected_device.vendor or 'N/A'}\n投产时间: {selected_device.commission_date or 'N/A'}\n生命周期状态: {lifecycle_status}""",
-            "level": 0,
-            "device_type": selected_device.device_type,
+    
+    nodes = []
+    edges = []
+    processed_device_ids = set()
+    
+    # 添加选中设备节点
+    lifecycle_status = _get_device_lifecycle_status(selected_device, db)
+    
+    # 修复设备名称显示格式：按照设计规范只显示设备名称
+    device_label = selected_device.name
+    
+    # 记录设备名称格式化日志
+    topology_error_tracker.log_error(
+        category=ErrorCategory.NODE_RENDERING,
+        level=ErrorLevel.INFO,
+        message=f"设备节点标签格式化完成",
+        context={
+            "device_id": selected_device.id,
+            "device_name": selected_device.name,
             "station": selected_device.station,
-            "color": "#ff6b6b"  # 选中设备用红色高亮
+            "formatted_label": device_label,
+            "original_format": selected_device.name
         }
-        nodes.append(node_data)
+    )
+    
+    node_data = {
+        "id": selected_device.id,
+        "label": device_label,
+        "title": f"""资产编号: {selected_device.asset_id}\n名称: {selected_device.name}\n设备类型: {selected_device.device_type or 'N/A'}\n站点: {selected_device.station or 'N/A'}\n型号: {selected_device.model or 'N/A'}\n位置: {selected_device.location or 'N/A'}\n额定容量: {selected_device.power_rating or 'N/A'}\n生产厂家: {selected_device.vendor or 'N/A'}\n投产时间: {selected_device.commission_date or 'N/A'}\n生命周期状态: {lifecycle_status}""",
+        "level": 0,  # 选中设备在第一层
+        "device_type": selected_device.device_type,
+        "station": selected_device.station
+    }
+    nodes.append(node_data)
     processed_device_ids.add(selected_device.id)
 
     # 获取与选中设备直接连接的所有连接
@@ -2223,9 +2855,9 @@ async def get_graph_data(
                         # 双端视图：为对端设备也创建总线与端口节点
                         bus_data = _create_bus_topology_nodes(connected_device, db, group_size=group_size)
                         for node in bus_data['bus_nodes']:
-                            add_node(node)
+                            nodes.append(node)
                         for node in bus_data['port_nodes']:
-                            add_node(node)
+                            nodes.append(node)
                         edges.extend(bus_data['bus_port_edges'])
                     else:
                         # 仅A端视图：不为对端设备创建节点，由选中设备侧的“对端合并端口”承担展示
@@ -2237,9 +2869,12 @@ async def get_graph_data(
                 # 设备级显示：为连接设备创建节点
                 lifecycle_status = _get_device_lifecycle_status(connected_device, db)
                 
+                # 修复连接设备名称显示格式：只显示设备名称
+                connected_device_label = connected_device.name
+                
                 node_data = {
                     "id": connected_device.id,
-                    "label": connected_device.name,
+                    "label": connected_device_label,
                     "title": f"""资产编号: {connected_device.asset_id}\n名称: {connected_device.name}\n设备类型: {connected_device.device_type or 'N/A'}\n站点: {connected_device.station or 'N/A'}\n型号: {connected_device.model or 'N/A'}\n位置: {connected_device.location or 'N/A'}\n额定容量: {connected_device.power_rating or 'N/A'}\n生产厂家: {connected_device.vendor or 'N/A'}\n投产时间: {connected_device.commission_date or 'N/A'}\n生命周期状态: {lifecycle_status}""",
                     "level": 1,  # 连接设备在第二层
                     "device_type": connected_device.device_type,
@@ -2271,7 +2906,10 @@ async def get_graph_data(
                     "arrows": "to",
                     "label": conn.connection_type or conn.cable_type or "",
                     "connection_type": conn.connection_type,
-                    "cable_type": conn.cable_type
+                    "cable_type": conn.cable_type,
+                    "cable_model": conn.cable_model,
+                    "remark": conn.remark,
+                    "connection_id": conn.id
                 }
             elif conn.upstream_downstream == "下游":
                 # 下游表示电流从target流向source
@@ -2281,7 +2919,10 @@ async def get_graph_data(
                     "arrows": "to",
                     "label": conn.connection_type or conn.cable_type or "",
                     "connection_type": conn.connection_type,
-                    "cable_type": conn.cable_type
+                    "cable_type": conn.cable_type,
+                    "cable_model": conn.cable_model,
+                    "remark": conn.remark,
+                    "connection_id": conn.id
                 }
             else:
                 # 没有明确的上下游关系，使用默认方向（从source到target）
@@ -2291,7 +2932,10 @@ async def get_graph_data(
                     "arrows": "to",
                     "label": conn.connection_type or conn.cable_type or "",
                     "connection_type": conn.connection_type,
-                    "cable_type": conn.cable_type
+                    "cable_type": conn.cable_type,
+                    "cable_model": conn.cable_model,
+                    "remark": conn.remark,
+                    "connection_id": conn.id
                 }
             edges.append(edge_data)
                 
@@ -2559,70 +3203,35 @@ def _create_port_edges(connection: Connection, direction: str) -> list:
                 "label": connection.connection_type or connection.cable_model or "",
                 "connection_type": connection.connection_type,
                 "cable_model": connection.cable_model,
-                "connection_id": connection.id
+                "connection_id": connection.id,
+                "remark": connection.remark
             })
     
     return edges
 
 
-# 新增API路径：/api/power-chain/{device_id} - 与/graph_data/{device_id}功能相同，保持向后兼容
-@app.get("/api/power-chain/{device_id}")
-async def get_power_chain_data(device_id: int, db: Session = Depends(get_db)):
-    """获取设备电力链路拓扑图数据 - 新的API路径
-    
-    Args:
-        device_id: 设备ID
-        db: 数据库会话
-        
-    Returns:
-        JSONResponse: 包含nodes和edges的拓扑图数据
-    """
-    nodes = []
-    edges = []
-    processed_ids = set()
 
-    device = db.query(Device).filter(Device.id == device_id).first()
-    if not device:
-        raise HTTPException(status_code=404, detail="Device not found")
 
-    queue = [device]
-    visited_ids = {device.id}
 
-    while queue:
-        current_device = queue.pop(0)
 
-        if current_device.id not in processed_ids:
-            # 在悬浮提示中也加入资产编号
-            nodes.append({
-                "id": current_device.id,
-                "label": current_device.name,
-                "title": f"""<b>资产编号:</b> {current_device.asset_id}<br>
-                             <b>名称:</b> {current_device.name}<br>
-                             <b>型号:</b> {current_device.model or 'N/A'}<br>
-                             <b>位置:</b> {current_device.location or 'N/A'}<br>
-                             <b>功率:</b> {current_device.power_rating or 'N/A'}""",
-                "level": 0 
-            })
-            processed_ids.add(current_device.id)
 
-        # 向上游查找
-        for conn in current_device.target_connections:
-            source_device = conn.source_device
-            if source_device and source_device.id not in visited_ids:
-                edges.append({"from": source_device.id, "to": current_device.id, "arrows": "to", "label": conn.cable_type or ""})
-                visited_ids.add(source_device.id)
-                queue.append(source_device)
-
-        # 向下游查找
-        for conn in current_device.source_connections:
-            target_device = conn.target_device
-            if target_device and target_device.id not in visited_ids:
-                edges.append({"from": current_device.id, "to": target_device.id, "arrows": "to", "label": conn.cable_type or ""})
-                visited_ids.add(target_device.id)
-                queue.append(target_device)
-                
-    return JSONResponse(content={"nodes": nodes, "edges": edges})
-
+@app.get("/api/port-selection/{device_id}")
+async def get_port_selection_options(device_id: int, db: Session = Depends(get_db)):
+    """获取端口选择选项"""
+    try:
+        from port_topology_service import PortTopologyService
+        service = PortTopologyService(db)
+        data = service.get_port_selection_options(device_id)
+        return {"success": True, "data": data}
+    except Exception as e:
+        topology_error_tracker.log_error(
+            category=ErrorCategory.API_ERROR,
+            level=ErrorLevel.ERROR,
+            message=f"端口选择选项API调用失败: {str(e)}",
+            context={"device_id": device_id},
+            exception=e
+        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/graph", response_class=HTMLResponse)
 async def get_topology_graph_page(request: Request, db: Session = Depends(get_db)):
@@ -2721,6 +3330,10 @@ async def create_lifecycle_rule(
         
     except Exception as e:
         db.rollback()
+
+
+
+
         print(f"创建生命周期规则失败: {e}")
         return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
@@ -4450,8 +5063,6 @@ def _group_ports_by_direction(device: Device, ports: list) -> dict:
 
 def _determine_actual_port_direction(selected_device_id: int, source_device_id: int, target_device_id: int, upstream_downstream: str, device_role: str) -> str:
     """基于upstream_downstream字段和设备角色确定端口的实际电流方向
-    
-    Args:
         selected_device_id: 用户选中查看的设备ID
         source_device_id: 连接中的源设备ID
         target_device_id: 连接中的目标设备ID
@@ -4496,8 +5107,6 @@ def _determine_port_direction(device_type: str, port_name: str, default_directio
     # 基于设备类型的端口方向规则
     device_rules = {
         '发电机组': {
-            'output': ['输出', '发电', 'OUT', 'OUTPUT', '出线'],
-            'input': ['输入', '励磁', 'IN', 'INPUT', '进线', '启动']
         },
         'UPS': {
             'input': ['输入', 'INPUT', 'AC_IN', 'BYPASS', '旁路', '进线'],
@@ -4672,7 +5281,7 @@ def _create_connected_device_port_node(device: Device, port: dict, db: Session) 
             return None
         
         # 确定对端端口信息
-        connected_port_name = "未知端口"
+        connected_port_name = f"连接{connection.id}"  # 改进默认名称
         connected_port_type = "未知"
         
         if connection.source_device_id == device.id:
@@ -4683,6 +5292,9 @@ def _create_connected_device_port_node(device: Device, port: dict, db: Session) 
             elif connection.target_breaker_number:
                 connected_port_name = f"空开-{connection.target_breaker_number}"
                 connected_port_type = "空开"
+            else:
+                # 当目标端口信息缺失时，使用更有意义的标识
+                connected_port_name = f"入线{connection.id}"
         else:
             # 当前设备是目标设备，对端是源设备的端口
             if connection.source_fuse_number:
@@ -4691,6 +5303,9 @@ def _create_connected_device_port_node(device: Device, port: dict, db: Session) 
             elif connection.source_breaker_number:
                 connected_port_name = f"空开-{connection.source_breaker_number}"
                 connected_port_type = "空开"
+            else:
+                # 当源端口信息缺失时，使用更有意义的标识
+                connected_port_name = f"出线{connection.id}"
         
         # 端口颜色配置
         port_colors = {
@@ -4886,6 +5501,8 @@ def _create_bus_port_edges(connection, direction: str) -> list:
                         'connection_id': connection.id,
                         'connection_type': connection.connection_type,
                         'cable_type': connection.cable_type,
+                        'cable_model': connection.cable_model,
+                        'remark': connection.remark,
                         'color': {
                             'color': _get_connection_color(connection.connection_type),
                             'width': _get_connection_width_from_connection(connection),
@@ -4930,6 +5547,8 @@ def _create_bus_port_edges(connection, direction: str) -> list:
                         'connection_id': connection.id,
                         'connection_type': connection.connection_type,
                         'cable_type': connection.cable_type,
+                        'cable_model': connection.cable_model,
+                        'remark': connection.remark,
                         'color': {
                             'color': _get_connection_color(connection.connection_type),
                             'width': _get_connection_width_from_connection(connection),
@@ -5062,4 +5681,6 @@ if __name__ == "__main__":
     print(f"🔗 连接管理: http://localhost:{PORT}/connections")
     print(f"⚙️  生命周期管理: http://localhost:{PORT}/lifecycle-management")
     print(f"\n注意：应用程序实际运行在端口 {PORT}")
+    uvicorn.run(app, host="0.0.0.0", port=PORT, reload=False)
+
     uvicorn.run(app, host="0.0.0.0", port=PORT, reload=False)

@@ -107,11 +107,11 @@
                                 <div class="col-md-3 mb-3">
                                     <label for="level-select" class="form-label">显示层级:</label>
                                     <select class="form-select" id="level-select">
-                                        <option value="1">1层 (直接连接)</option>
-                                        <option value="2" selected>2层 (推荐)</option>
-                                        <option value="3">3层</option>
-                                        <option value="4">4层</option>
-                                        <option value="5">5层 (全链路)</option>
+                                        <option value="1">1层 - 设备拓扑图 (直接连接)</option>
+                                        <option value="2" selected>2层 - 设备拓扑图 (推荐)</option>
+                                        <option value="3">3层 - 设备拓扑图</option>
+                                        <option value="4">4层 - 端口拓扑图</option>
+                                        <option value="5">5层 - 端口拓扑图 (全链路)</option>
                                     </select>
                                 </div>
                                 
@@ -213,6 +213,71 @@
                 <div id="mynetwork"></div>
             </div>
         </div>
+        
+        <!-- 端口拓扑图区域 -->
+        <div class="row mt-4" id="port-topology-section" style="display: none;">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-sitemap"></i> 端口拓扑图
+                            <button class="btn btn-sm btn-outline-secondary float-end" id="port-topology-fullscreen-btn">
+                                <i class="fas fa-expand"></i> 全屏
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger float-end me-2" id="close-port-topology-btn">
+                                <i class="fas fa-times"></i> 关闭
+                            </button>
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- 端口拓扑图控制面板 -->
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="port-layout-select" class="form-label">布局类型:</label>
+                                <select class="form-select" id="port-layout-select">
+                                    <option value="hierarchicalLR">左右分列布局</option>
+                                    <option value="hierarchicalUD">上下分层布局</option>
+                                    <option value="force">力导向布局</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="port-filter-select" class="form-label">端口筛选:</label>
+                                <select class="form-select" id="port-filter-select">
+                                    <option value="">全部端口</option>
+                                    <option value="input">输入端口</option>
+                                    <option value="output">输出端口</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-check mt-4">
+                                    <input class="form-check-input" type="checkbox" id="show-port-labels-check" checked>
+                                    <label class="form-check-label" for="show-port-labels-check">
+                                        显示端口标签
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <button class="btn btn-primary mt-4" id="refresh-port-topology-btn">
+                                    <i class="fas fa-sync"></i> 刷新
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- 端口拓扑图容器 -->
+                        <div id="port-topology-container" style="height: 500px; border: 1px solid #ddd; position: relative;">
+                            <div class="d-flex justify-content-center align-items-center h-100">
+                                <div class="text-muted">
+                                    <i class="fas fa-spinner fa-spin"></i> 加载端口拓扑图...
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- SVG容器（备用） -->
+                        <svg id="port-topology-svg" style="display: none;"></svg>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- 引入Bootstrap 5 JS -->
@@ -221,10 +286,14 @@
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <!-- 引入vis.js网络图 -->
     <script type="text/javascript" src="https://visjs.github.io/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="/static/js/port_topology.js"></script>
     
     <script type="text/javascript">
         // 全局变量声明
-        let network = null;
+        var network = null;
+        var nodes = null;
+        var edges = null;
+        let topologyData = {};
         let currentDeviceId = null;
         let currentGraphData = null;
         let groupingIndex = null;
@@ -236,28 +305,63 @@
         // 全局函数：渲染拓扑图
         function renderTopology(data) {
             try {
-                // 处理节点数据
-                const nodes = new vis.DataSet(data.nodes.map(node => ({
-                    id: node.id,
-                    label: node.label,
-                    color: node.color || '#97C2FC',
-                    shape: node.shape || 'dot',
-                    size: node.size || 25,
-                    font: { size: 12, color: '#000000' },
-                    // 保存原始数据用于提示框
-                    deviceName: node.deviceName,
-                    deviceType: node.deviceType,
-                    station: node.station,
-                    nodeType: node.nodeType,
-                    portName: node.portName,
-                    portCount: node.portCount,
-                    direction: node.direction,
-                    voltage: node.voltage,
-                    current: node.current
-                })));
+                // 处理节点数据 - 直接赋值给全局变量
+                nodes = new vis.DataSet(data.nodes.map(node => {
+                    // 创建两行标签：第一行站点+机房，第二行设备名称（去掉下划线）
+                    const stationName = node.station || '未知站点';
+                    const deviceName = node.deviceName || node.label || '未知设备';
+                    
+                    // 格式化设备名称：在"机房"后换行，去掉下划线
+                    function formatDeviceLabel(station, deviceName) {
+                        // 去掉设备名称中的下划线
+                        let cleanDeviceName = deviceName.replace(/_/g, '');
+                        
+                        // 查找"机房"的位置
+                        const roomIndex = cleanDeviceName.indexOf('机房');
+                        if (roomIndex !== -1) {
+                            // 在"机房"后分割
+                            const roomPart = cleanDeviceName.substring(0, roomIndex + 2); // 包含"机房"
+                            const devicePart = cleanDeviceName.substring(roomIndex + 2);
+                            
+                            // 第一行：站点 + 机房部分
+                            const firstLine = `${station}${roomPart}`;
+                            // 第二行：剩余的设备部分
+                            const secondLine = devicePart;
+                            
+                            return `<b>${firstLine}</b><br/>${secondLine}`;
+                        } else {
+                            // 如果没有找到"机房"，使用原来的格式
+                            return `<b>${station}</b><br/>${cleanDeviceName}`;
+                        }
+                    }
+                    
+                    const twoLineLabel = formatDeviceLabel(stationName, deviceName);
+                    
+                    return {
+                        id: node.id,
+                        label: twoLineLabel,
+                        color: node.color || '#97C2FC',
+                        shape: 'box',  // 强制使用方形
+                        font: { 
+                            size: 11, 
+                            color: '#000000',
+                            multi: 'html'  // 支持HTML格式
+                        },
+                        // 保存原始数据用于提示框
+                        deviceName: node.deviceName,
+                        deviceType: node.deviceType,
+                        station: node.station,
+                        nodeType: node.nodeType,
+                        portName: node.portName,
+                        portCount: node.portCount,
+                        direction: node.direction,
+                        voltage: node.voltage,
+                        current: node.current
+                    };
+                }));
                 
-                // 处理边数据
-                const edges = new vis.DataSet(data.edges.map(edge => ({
+                // 处理边数据 - 直接赋值给全局变量
+                edges = new vis.DataSet(data.edges.map(edge => ({
                     id: edge.id,
                     from: edge.from,
                     to: edge.to,
@@ -286,14 +390,27 @@
                         }
                     },
                     physics: {
-                        enabled: false
+                        enabled: false,
+                        // 允许节点在所有方向自由移动
+                        stabilization: false
                     },
                     nodes: {
+                        shape: 'box',  // 改为方形
+                        size: 30,
                         borderWidth: 2,
                         shadow: true,
                         font: {
-                            size: 12,
-                            color: '#000000'
+                            size: 11,
+                            color: '#000000',
+                            multi: 'html'  // 支持HTML格式，用于多行显示
+                        },
+                        margin: 10,
+                        widthConstraint: {
+                            minimum: 120,
+                            maximum: 180
+                        },
+                        heightConstraint: {
+                            minimum: 60
                         }
                     },
                     edges: {
@@ -308,11 +425,28 @@
                         dragView: true,
                         zoomView: true,
                         selectConnectedEdges: false
+                    },
+                    manipulation: {
+                        enabled: false
                     }
                 };
                 
                 // 创建网络图
                 network = new vis.Network(mynetwork, { nodes, edges }, options);
+                
+                // 限制节点只能水平拖动
+                // 移除拖动限制，允许节点在所有方向自由移动
+                network.on('dragStart', function(event) {
+                    // 节点开始拖动时的处理（如需要可以添加逻辑）
+                });
+                
+                network.on('dragging', function(event) {
+                    // 节点拖动过程中的处理（如需要可以添加逻辑）
+                });
+                
+                network.on('dragEnd', function(event) {
+                    // 节点拖动结束时的处理（如需要可以添加逻辑）
+                });
                 
                 // 添加事件监听器
                 network.on('hoverNode', function(event) {
@@ -344,6 +478,29 @@
                         }
                     }
                 });
+                
+                // 修复Canvas尺寸问题 - 强制设置容器尺寸并重绘网络
+                setTimeout(() => {
+                    try {
+                        const container = document.getElementById('mynetwork');
+                        if (container) {
+                            // 强制设置容器样式
+                            container.style.width = '100%';
+                            container.style.height = '80vh';
+                            container.style.minHeight = '600px';
+                            container.style.display = 'block';
+                            container.style.visibility = 'visible';
+                            
+                            // 如果网络已创建，重新调整和重绘
+                            if (network) {
+                                network.redraw();
+                                network.fit();
+                            }
+                        }
+                    } catch (fixError) {
+                        console.warn('Canvas尺寸修复失败:', fixError);
+                    }
+                }, 100);
                 
             } catch (error) {
                 console.error('渲染拓扑图时发生错误:', error);
@@ -470,8 +627,143 @@
         
         // 全局辅助函数：显示节点详情模态框
         function showNodeDetails(node) {
-            // 这里可以实现一个模态框来显示节点的详细信息
-            alert(`节点详情:\n名称: ${node.label}\n类型: ${node.deviceType || '未知'}\n站点: ${node.station || '未知'}`);
+            // 创建模态框显示详细信息
+            const modalHtml = `
+                <div class="modal fade" id="nodeDetailsModal" tabindex="-1" aria-labelledby="nodeDetailsModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="nodeDetailsModalLabel">
+                                    <i class="fas fa-info-circle me-2"></i>节点详细信息
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <h6 class="card-title mb-0">基本信息</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <table class="table table-sm">
+                                                    <tr>
+                                                        <td><strong>设备名称:</strong></td>
+                                                        <td>${node.deviceName || node.label || '未知'}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td><strong>设备类型:</strong></td>
+                                                        <td>${node.deviceType || '未知'}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td><strong>所属站点:</strong></td>
+                                                        <td>${node.station || '未知'}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td><strong>节点类型:</strong></td>
+                                                        <td>${node.nodeType || '设备节点'}</td>
+                                                    </tr>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <h6 class="card-title mb-0">技术参数</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <table class="table table-sm">
+                                                    ${node.voltage ? `<tr><td><strong>电压等级:</strong></td><td>${node.voltage}</td></tr>` : ''}
+                                                    ${node.current ? `<tr><td><strong>额定电流:</strong></td><td>${node.current}</td></tr>` : ''}
+                                                    ${node.portCount ? `<tr><td><strong>端口数量:</strong></td><td>${node.portCount}</td></tr>` : ''}
+                                                    ${node.direction ? `<tr><td><strong>电流方向:</strong></td><td>${node.direction}</td></tr>` : ''}
+                                                    ${node.portName ? `<tr><td><strong>端口名称:</strong></td><td>${node.portName}</td></tr>` : ''}
+                                                    ${!node.voltage && !node.current && !node.portCount && !node.direction && !node.portName ? 
+                                                        '<tr><td colspan="2" class="text-muted">暂无技术参数信息</td></tr>' : ''}
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row mt-3">
+                                    <div class="col-12">
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <h6 class="card-title mb-0">操作选项</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="btn-group" role="group">
+                                                    <button type="button" class="btn btn-primary btn-sm" onclick="viewDeviceDetails('${node.id}')">
+                                                        <i class="fas fa-eye me-1"></i>查看设备详情
+                                                    </button>
+                                                    <button type="button" class="btn btn-info btn-sm" onclick="showConnections('${node.id}')">
+                                                        <i class="fas fa-network-wired me-1"></i>查看连接关系
+                                                    </button>
+                                                    <button type="button" class="btn btn-success btn-sm" onclick="generateSubTopology('${node.id}')">
+                                                        <i class="fas fa-sitemap me-1"></i>生成子拓扑图
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 移除已存在的模态框
+            const existingModal = document.getElementById('nodeDetailsModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // 添加新的模态框到页面
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            // 显示模态框
+            const modal = new bootstrap.Modal(document.getElementById('nodeDetailsModal'));
+            modal.show();
+        }
+        
+        // 辅助函数：查看设备详情
+        function viewDeviceDetails(nodeId) {
+            // 这里可以跳转到设备详情页面或显示更详细的信息
+            alert(`查看设备详情功能开发中... 设备ID: ${nodeId}`);
+        }
+        
+        // 辅助函数：显示连接关系
+        function showConnections(nodeId) {
+            // 这里可以显示该节点的所有连接关系
+            alert(`显示连接关系功能开发中... 节点ID: ${nodeId}`);
+        }
+        
+        // 辅助函数：生成子拓扑图
+        function generateSubTopology(nodeId) {
+            // 设置当前选择的设备ID
+            currentDeviceId = nodeId;
+            deviceSelect.value = nodeId;
+            
+            // 检查当前是否在端口拓扑图模式
+            const levelValue = parseInt(levelSelect.value);
+            if (levelValue >= 4) {
+                // 如果当前在端口拓扑图模式，直接加载端口拓扑
+                loadPortTopology();
+            } else {
+                // 否则生成设备拓扑图
+                generateTopology();
+            }
+            
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('nodeDetailsModal'));
+            if (modal) {
+                modal.hide();
+            }
         }
 
         // 全局函数：生成拓扑图
@@ -489,32 +781,51 @@
             
             try {
                 // 构建API URL
-                // 将前端的层级数字映射为API期望的字符串值
+                // 根据层级选择不同的API端点
                 const levelValue = levelSelect.value;
-                let apiLevel = 'device'; // 默认值
+                let apiUrl, params;
+                
                 if (levelValue === '1' || levelValue === '2' || levelValue === '3') {
-                    apiLevel = 'device'; // 1-3级显示设备级
+                    // 1-3级使用设备级拓扑API
+                    let apiLevel = 'device';
+                    if (levelValue === '2') apiLevel = 'device';
+                    if (levelValue === '3') apiLevel = 'port';
+                    
+                    params = new URLSearchParams({
+                        device_id: selectedDeviceId,
+                        level: apiLevel
+                    });
+                    
+                    // 添加筛选参数
+                    if (stationSelect.value) params.append('station', stationSelect.value);
+                    if (deviceTypeSelect.value) params.append('device_type', deviceTypeSelect.value);
+                    if (connectionTypeSelect.value) params.append('connection_type', connectionTypeSelect.value);
+                    if (criticalOnlyCheck.checked) params.append('critical_only', 'true');
+                    
+                    apiUrl = `/api/power-chain/${selectedDeviceId}?${params}`;
                 } else if (levelValue === '4' || levelValue === '5') {
-                    apiLevel = 'port'; // 4-5级显示端口级
+                    // 4-5级使用端口拓扑API
+                    params = new URLSearchParams({
+                        mode: 'detailed',
+                        level: levelValue  // 添加层级参数
+                    });
+                    
+                    // 添加筛选参数
+                    if (stationSelect.value) params.append('station', stationSelect.value);
+                    if (deviceTypeSelect.value) params.append('device_type', deviceTypeSelect.value);
+                    if (connectionTypeSelect.value) params.append('connection_type', connectionTypeSelect.value);
+                    if (criticalOnlyCheck.checked) params.append('critical_only', 'true');
+                    
+                    apiUrl = `/api/port-topology/${selectedDeviceId}?${params}`;
                 }
                 
-                const params = new URLSearchParams({
-                    device_id: selectedDeviceId,
-                    level: apiLevel
-                });
-                
-                // 添加筛选参数
-                if (stationSelect.value) params.append('station', stationSelect.value);
-                if (deviceTypeSelect.value) params.append('device_type', deviceTypeSelect.value);
-                if (connectionTypeSelect.value) params.append('connection_type', connectionTypeSelect.value);
-                if (criticalOnlyCheck.checked) params.append('critical_only', 'true');
-                
-                const response = await fetch(`/api/power-chain/${selectedDeviceId}?${params}`);
+                const response = await fetch(apiUrl);
                 const data = await response.json();
                 
                 if (data.nodes && data.edges) {
                     // 缓存当前图数据
                     currentGraphData = data;
+                    currentDeviceId = selectedDeviceId; // 设置当前设备ID
                     renderTopology(data);
                 } else {
                     mynetwork.innerHTML = '<div class="alert alert-info" role="alert">当前筛选条件下无可显示的数据，请调整筛选条件后重试。</div>';
@@ -538,6 +849,9 @@
         let groupSizeContainer, groupSizeInput;
         let busGroupActions, collapseAllBtn, expandAllBtn;
         
+        // 端口拓扑图相关元素
+        let portLayoutTypeSelect, portFilterSelect, showPortLabelsCheck, refreshPortBtn;
+        
         // 等待 DOM 内容加载完成后执行
         document.addEventListener('DOMContentLoaded', function () {
             // 初始化页面元素引用
@@ -559,6 +873,12 @@
             // 仅A端视图相关元素
             onlySelectedDeviceContainer = document.getElementById('only-selected-device-container');
             onlySelectedDeviceCheck = document.getElementById('only-selected-device-check');
+            
+            // 端口拓扑图相关元素
+            portLayoutTypeSelect = document.getElementById('port-layout-type-select');
+            portFilterSelect = document.getElementById('port-filter-select');
+            showPortLabelsCheck = document.getElementById('show-port-labels-check');
+            refreshPortBtn = document.getElementById('refresh-port-btn');
             groupSizeContainer = document.getElementById('group-size-container');
             groupSizeInput = document.getElementById('group-size-input');
             // 新增：汇聚/展开按钮的引用
@@ -746,7 +1066,148 @@
                 } else {
                     layoutTypeContainer.style.display = 'none';
                 }
+                
+                // 根据层级切换拓扑图类型
+                if (parseInt(this.value) >= 4) {
+                    // 显示端口拓扑图
+                    showPortTopology();
+                } else {
+                    // 显示设备拓扑图
+                    showDeviceTopology();
+                }
             });
+            
+            // 端口拓扑图相关事件监听
+            if (refreshPortBtn) {
+                refreshPortBtn.addEventListener('click', loadPortTopology);
+            }
+            if (portLayoutTypeSelect) {
+                portLayoutTypeSelect.addEventListener('change', updatePortLayout);
+            }
+            if (showPortLabelsCheck) {
+                showPortLabelsCheck.addEventListener('change', togglePortLabels);
+            }
+            
+            // 显示设备拓扑图
+            function showDeviceTopology() {
+                if (mynetwork) mynetwork.style.display = 'block';
+                if (portTopologyContainer) portTopologyContainer.style.display = 'none';
+            }
+            
+            // 显示端口拓扑图
+            function showPortTopology() {
+                if (mynetwork) mynetwork.style.display = 'none';
+                if (portTopologyContainer) portTopologyContainer.style.display = 'block';
+                
+                // 检查是否已选择设备
+                if (!currentDeviceId) {
+                    // 显示提示信息
+                    showPortTopologyHint();
+                    return;
+                }
+                
+                // 初始化端口拓扑图
+                if (window.portTopologyManager) {
+                    loadPortTopology();
+                }
+            }
+            
+            // 显示端口拓扑图提示信息
+            function showPortTopologyHint() {
+                if (portTopologyContainer) {
+                    portTopologyContainer.innerHTML = `
+                        <div class="d-flex flex-column align-items-center justify-content-center h-100 text-center p-4">
+                            <div class="mb-4">
+                                <i class="fas fa-info-circle fa-3x text-info"></i>
+                            </div>
+                            <h5 class="text-muted mb-3">端口拓扑图</h5>
+                            <p class="text-muted mb-4">
+                                端口拓扑图显示设备的详细端口连接信息。<br>
+                                请先在设备拓扑图中双击选择一个设备，然后切换到4-5层级查看其端口拓扑。
+                            </p>
+                            <div class="alert alert-info" role="alert">
+                                <strong>操作步骤：</strong><br>
+                                1. 切换到1-3层级查看设备拓扑图<br>
+                                2. 双击选择要查看的设备<br>
+                                3. 再切换到4-5层级查看端口拓扑图
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            
+            // 加载端口拓扑图数据
+            async function loadPortTopology() {
+                if (!currentDeviceId) {
+                    alert('请先选择一个设备');
+                    return;
+                }
+                
+                try {
+                    // 显示加载状态
+                    if (portTopologyContainer) {
+                        portTopologyContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div><strong class="ms-3">正在加载端口拓扑图...</strong></div>';
+                    }
+                    
+                    // 初始化端口拓扑管理器
+                    if (window.portTopologyManager) {
+                        window.portTopologyManager.initialize('port-topology-container');
+                        
+                        // 构建端口拓扑图API URL - 使用正确的端口拓扑图端点
+                        let apiUrl = `/api/port-topology/${currentDeviceId}`;
+                        const params = new URLSearchParams();
+                        
+                        // 添加筛选参数
+                        if (portFilterSelect && portFilterSelect.value) {
+                            params.append('port_type', portFilterSelect.value);
+                        }
+                        
+                        // 如果有参数，添加到URL
+                        if (params.toString()) {
+                            apiUrl += `?${params.toString()}`;
+                        }
+                        
+                        // 获取端口拓扑数据
+                        const response = await fetch(apiUrl);
+                        const data = await response.json();
+                        
+                        if (data.nodes && data.edges) {
+                            // 更新端口拓扑图数据
+                            window.portTopologyManager.updateTopologyData(data);
+                        } else {
+                            if (portTopologyContainer) {
+                                portTopologyContainer.innerHTML = '<div class="alert alert-info" role="alert">当前设备无端口数据可显示。</div>';
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('加载端口拓扑图失败:', error);
+                    if (portTopologyContainer) {
+                        portTopologyContainer.innerHTML = `<div class="alert alert-warning" role="alert">
+                            加载端口拓扑图时发生错误，请稍后重试。<br>
+                            <small class="text-muted">错误详情: ${error.message}</small>
+                        </div>`;
+                    }
+                }
+            }
+            
+            // 更新端口拓扑图布局
+            function updatePortLayout() {
+                if (window.portTopologyManager && portLayoutTypeSelect) {
+                    const layoutType = portLayoutTypeSelect.value;
+                    // 这里可以根据布局类型更新拓扑图
+                    console.log('更新端口拓扑图布局:', layoutType);
+                }
+            }
+            
+            // 切换端口标签显示
+            function togglePortLabels() {
+                if (window.portTopologyManager && showPortLabelsCheck) {
+                    const showLabels = showPortLabelsCheck.checked;
+                    // 这里可以切换端口标签的显示/隐藏
+                    console.log('切换端口标签显示:', showLabels);
+                }
+            }
             
             // 初始化页面
             loadDeviceOptions();

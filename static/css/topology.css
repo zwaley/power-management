@@ -1,0 +1,254 @@
+/* 拓扑图专用样式 */
+
+.fullscreen-topology {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 9999 !important;
+    background: white !important;
+}
+
+.topology-container {
+    position: relative;
+    width: 100%;
+    height: 600px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.topology-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    display: flex;
+    gap: 5px;
+}
+
+.topology-controls .btn {
+    padding: 5px 10px;
+    font-size: 12px;
+}
+
+.port-topology-panel {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    margin-top: 10px;
+}
+
+.port-details-modal .modal-body {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.port-status-active {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.port-status-inactive {
+    color: #9E9E9E;
+}
+
+.port-status-error {
+    color: #F44336;
+    font-weight: bold;
+}
+
+.port-status-warning {
+    color: #FF9800;
+    font-weight: bold;
+}
+
+.topology-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 200px;
+    font-size: 16px;
+    color: #666;
+}
+
+.topology-error {
+    padding: 20px;
+    text-align: center;
+    color: #F44336;
+    background: #ffebee;
+    border-radius: 4px;
+    margin: 10px;
+}
+
+.drag-hint {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 5px 10px;
+    border-radius: 3px;
+    font-size: 12px;
+    z-index: 1000;
+}
+
+/* 节点样式增强 */
+.vis-network .vis-navigation .vis-button {
+    background: rgba(255,255,255,0.8) !important;
+    border: 1px solid #ccc !important;
+}
+
+.vis-network .vis-navigation .vis-button:hover {
+    background: rgba(255,255,255,1) !important;
+}
+
+/* 端口拓扑图容器样式 */
+#port-topology-container {
+    position: relative;
+    width: 100%;
+    height: 80vh;
+    min-height: 600px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f8f9fa;
+    overflow: hidden;
+    margin-top: 20px;
+}
+
+#port-topology-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* 端口拓扑图控制面板样式 */
+.port-topology-controls {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 10px;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.port-topology-controls .form-check {
+    margin-bottom: 0;
+}
+
+.port-topology-controls .form-check-label {
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* 端口节点样式 */
+.port-node {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.port-node:hover {
+    stroke-width: 2px;
+    filter: brightness(1.1);
+}
+
+.port-node.active {
+    stroke: #007bff;
+    stroke-width: 2px;
+}
+
+.port-node.inactive {
+    opacity: 0.6;
+}
+
+/* 端口连接线样式 */
+.port-connection {
+    stroke: #666;
+    stroke-width: 1.5px;
+    fill: none;
+    transition: all 0.3s ease;
+}
+
+.port-connection:hover {
+    stroke: #007bff;
+    stroke-width: 2px;
+}
+
+.port-connection.active {
+    stroke: #28a745;
+    stroke-width: 2px;
+}
+
+/* 端口标签样式 */
+.port-label {
+    font-family: Arial, sans-serif;
+    font-size: 10px;
+    fill: #333;
+    text-anchor: middle;
+    pointer-events: none;
+}
+
+.port-label.device-label {
+    font-size: 12px;
+    font-weight: bold;
+    fill: #000;
+}
+
+/* 端口拓扑图全屏模式 */
+#port-topology-container.fullscreen {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 9999 !important;
+    background: white !important;
+    border: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .topology-container {
+        height: 400px;
+    }
+    
+    .topology-controls {
+        position: relative;
+        top: auto;
+        right: auto;
+        margin-bottom: 10px;
+        justify-content: center;
+    }
+    
+    .drag-hint {
+        display: none;
+    }
+    
+    #port-topology-container {
+        height: 60vh;
+        min-height: 400px;
+    }
+    
+    .port-topology-controls {
+        position: relative;
+        top: auto;
+        right: auto;
+        margin-bottom: 10px;
+        justify-content: center;
+        background: white;
+        border: 1px solid #ddd;
+    }
+    
+    .port-topology-controls .form-check {
+        margin-right: 15px;
+    }
+}
