@@ -90,6 +90,15 @@ class PortTopologyManager {
                 hierarchical: {
                     enabled: false
                 }
+            },
+            physics: {
+                enabled: false  // 禁用物理引擎，使用固定位置
+            },
+            interaction: {
+                dragNodes: true,  // 允许拖拽节点
+                dragView: true,   // 允许拖拽视图
+                zoomView: true,   // 允许缩放
+                selectConnectedEdges: false
             }
         };
     }

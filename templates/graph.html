@@ -434,18 +434,28 @@
                 // 创建网络图
                 network = new vis.Network(mynetwork, { nodes, edges }, options);
                 
-                // 限制节点只能水平拖动
-                // 移除拖动限制，允许节点在所有方向自由移动
+                // 节点拖动事件处理 - 允许全方向自由拖动
                 network.on('dragStart', function(event) {
-                    // 节点开始拖动时的处理（如需要可以添加逻辑）
+                    // 拖动开始时禁用物理引擎，避免自动重排
+                    if (event.nodes.length > 0) {
+                        network.setOptions({
+                            physics: { enabled: false }
+                        });
+                    }
                 });
                 
                 network.on('dragging', function(event) {
-                    // 节点拖动过程中的处理（如需要可以添加逻辑）
+                    // 拖动过程中保持物理引擎禁用状态
+                    // 节点可以在所有方向自由移动
                 });
                 
                 network.on('dragEnd', function(event) {
-                    // 节点拖动结束时的处理（如需要可以添加逻辑）
+                    // 拖动结束后保持物理引擎禁用，防止节点自动重排
+                    if (event.nodes.length > 0) {
+                        network.setOptions({
+                            physics: { enabled: false }
+                        });
+                    }
                 });
                 
                 // 添加事件监听器

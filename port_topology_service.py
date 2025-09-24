@@ -64,28 +64,35 @@ class PortTopologyService:
         ).all()
     
     def _build_detailed_port_topology(self, device: Device, connections: List[Connection]) -> Dict[str, Any]:
-        """构建详细的端口级拓扑数据"""
+        """构建详细的端口级拓扑数据 - 垂直布局，左右分列"""
         nodes = []
         edges = []
         port_groups = {}
         
-        # 创建中心设备节点
+        # 创建中心设备节点 - 固定在中心位置
         center_node = {
             "id": f"device_{device.id}",
             "label": device.name,
             "type": "device",
             "level": 0,
+            "x": 0,  # 中心位置
+            "y": 0,  # 中心位置
             "color": {
                 "background": "#3b82f6",
                 "border": "#1e40af"
             },
             "font": {"color": "#ffffff"},
             "shape": "box",
-            "size": 30
+            "size": 30,
+            "fixed": {"x": True, "y": True}  # 固定中心设备位置
         }
         nodes.append(center_node)
         
-        # 处理每个连接，创建端口节点
+        # 处理每个连接，创建端口节点 - 实现左右分列布局
+        left_ports = []  # 左侧端口
+        right_ports = []  # 右侧端口
+        port_index = 0
+        
         for conn in connections:
             # 确定本端和对端信息
             if conn.source_device_id == device.id:
@@ -104,16 +111,23 @@ class PortTopologyService:
             if not remote_device:
                 continue
             
-            # 创建本端端口节点
+            # 计算端口位置 - 左右交替分布
+            is_left_side = (port_index % 2 == 0)
+            port_x = -200 if is_left_side else 200  # 左侧-200，右侧+200
+            port_y = (port_index // 2) * 80 - 40  # 垂直间距80像素
+            
+            # 创建本端端口节点 - 只显示端口名称
             local_port_id = f"port_{device.id}_{local_port}"
             if local_port_id not in [n["id"] for n in nodes]:
-                # 改进端口标签，避免显示"未知端口"
-                port_label = local_port if local_port else f"端口{connection.id}"
+                # 本端端口只显示端口名称，不显示站点信息
+                port_label = local_port if local_port else f"端口{conn.id}"
                 local_port_node = {
                     "id": local_port_id,
-                    "label": port_label,
+                    "label": port_label,  # 只显示端口名称
                     "type": "port",
                     "level": 1,
+                    "x": port_x,
+                    "y": port_y,
                     "color": {
                         "background": "#10b981",
                         "border": "#059669"
@@ -134,14 +148,25 @@ class PortTopologyService:
                 }
                 edges.append(device_to_port_edge)
             
-            # 创建对端设备节点
+            # 计算对端设备和端口位置
+            remote_device_x = port_x + (150 if is_left_side else -150)  # 对端设备距离端口150像素
+            remote_port_x = port_x + (100 if is_left_side else -100)    # 对端端口距离本端端口100像素
+            
+            # 创建对端设备节点 - 显示正确的站点信息
             remote_device_id_str = f"device_{remote_device_id}"
             if remote_device_id_str not in [n["id"] for n in nodes]:
+                # 对端设备显示设备名称和站点信息
+                device_label = f"{remote_device.name}"
+                if remote_device.station and remote_device.station != "未知站点":
+                    device_label += f"\n({remote_device.station})"
+                
                 remote_device_node = {
                     "id": remote_device_id_str,
-                    "label": remote_device.name,
+                    "label": device_label,
                     "type": "device",
                     "level": 2,
+                    "x": remote_device_x,
+                    "y": port_y,
                     "color": {
                         "background": "#8b5cf6",
                         "border": "#7c3aed"
@@ -152,16 +177,21 @@ class PortTopologyService:
                 }
                 nodes.append(remote_device_node)
             
-            # 创建对端端口节点
+            # 创建对端端口节点 - 显示正确的端口信息
             remote_port_id = f"port_{remote_device_id}_{remote_port}"
             if remote_port_id not in [n["id"] for n in nodes]:
-                # 改进对端端口标签，避免显示"未知端口"
-                remote_port_label = remote_port if remote_port else f"入线{connection.id}"
+                # 对端端口显示端口名称和设备信息
+                remote_port_label = remote_port if remote_port else f"入线{conn.id}"
+                if remote_device.station and remote_device.station != "未知站点":
+                    remote_port_label += f"\n({remote_device.station})"
+                
                 remote_port_node = {
                     "id": remote_port_id,
                     "label": remote_port_label,
                     "type": "port",
                     "level": 2,
+                    "x": remote_port_x,
+                    "y": port_y,
                     "color": {
                         "background": "#f59e0b",
                         "border": "#d97706"
@@ -198,6 +228,9 @@ class PortTopologyService:
                 }
             }
             edges.append(port_to_port_edge)
+            
+            # 增加端口索引
+            port_index += 1
         
         topology_error_tracker.log_error(
             category=ErrorCategory.DATA_LOADING,
