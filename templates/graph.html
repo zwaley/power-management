@@ -432,6 +432,11 @@
                 
                 // 创建网络图
                 network = new vis.Network(mynetwork, { nodes, edges }, options);
+                // 为了允许用户在任意方向自由拖拽节点：
+                // 先使用分层布局生成初始位置，然后立即关闭分层约束以开放自由拖拽
+                try {
+                    network.setOptions({ layout: { hierarchical: { enabled: false } } });
+                } catch (_) {}
                 
                 // 节点拖动事件处理 - 允许全方向自由拖动
                 network.on('dragStart', function(event) {
@@ -761,8 +766,8 @@
             // 检查当前是否在端口拓扑图模式
             const levelValue = parseInt(levelSelect.value);
             if (levelValue >= 4) {
-                // 如果当前在端口拓扑图模式，直接加载端口拓扑
-                loadPortTopology();
+                // 如果当前在端口拓扑图模式，直接加载端口拓扑（视为重新生成）
+                loadPortTopology(true);
             } else {
                 // 否则生成设备拓扑图
                 generateTopology();
@@ -1102,7 +1107,8 @@
             
             // 端口拓扑图相关事件监听
             if (refreshPortBtn) {
-                refreshPortBtn.addEventListener('click', loadPortTopology);
+                // 刷新视为“重新生成”，清空并恢复默认布局
+                refreshPortBtn.addEventListener('click', function() { loadPortTopology(true); });
             }
             if (portLayoutTypeSelect) {
                 portLayoutTypeSelect.addEventListener('change', updatePortLayout);
@@ -1151,9 +1157,9 @@
                     window.portTopologyManager = new PortTopologyManager();
                 }
                 
-                // 初始化端口拓扑图
+                // 初始化端口拓扑图（切换视图等同重新生成）
                 if (window.portTopologyManager) {
-                    loadPortTopology();
+                    loadPortTopology(true);
                 }
             }
             
@@ -1182,7 +1188,7 @@
             }
             
             // 加载端口拓扑图数据
-            async function loadPortTopology() {
+            async function loadPortTopology(resetPositions = false) {
                 if (!currentDeviceId) {
                     alert('请先选择一个设备');
                     return;
@@ -1217,10 +1223,14 @@
                         
                         if (data.nodes && data.edges) {
                             // 更新端口拓扑图数据
-                            window.portTopologyManager.updateTopologyData(data);
+                            window.portTopologyManager.updateTopologyData(data, { resetPositions });
                             
                             // 在数据更新后，应用当前布局选择，确保刷新或筛选后布局保持一致
                             if (portLayoutTypeSelect && typeof updatePortLayout === 'function') {
+                                // 跳过一次本地位置恢复，以确保默认布局
+                                if (resetPositions && window.portTopologyManager) {
+                                    window.portTopologyManager.skipApplySavedPositionsOnce = true;
+                                }
                                 updatePortLayout();
                             }
                             // 隐藏加载遮罩
@@ -1260,8 +1270,8 @@
                     if (window.portTopologyManager.updateLayout) {
                         window.portTopologyManager.updateLayout(layoutType);
                     } else {
-                        // 如果没有updateLayout方法，重新加载拓扑图
-                        loadPortTopology();
+                        // 如果没有updateLayout方法，重新加载拓扑图（保持默认布局）
+                        loadPortTopology(true);
                     }
                 }
             }
