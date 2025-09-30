@@ -22,5 +22,5 @@ else:
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'admin123')
 
 # 端口配置
-# 优先使用环境变量中的端口，如果没有设置则使用默认端口8000
+# 优先使用环境变量中的端口，如果没有设置则使用默认端口8009
 PORT = int(os.environ.get('PORT', 8009))

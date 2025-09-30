@@ -299,7 +299,6 @@
         let groupingIndex = null;
         let portTopologyData = null;
         let isPortTopologyFullscreen = false;
-        let portTopologyNetwork = null;
         let tooltip = null;
         
         // 全局函数：渲染拓扑图
@@ -850,7 +849,7 @@
         }
         
         // 全局DOM元素引用
-        let deviceSelect, mynetwork, portTopologyContainer, portTopologySvg;
+        let deviceSelect, mynetwork, portTopologyContainer, portTopologySvg, portTopologySection;
         let levelSelect, layoutTypeSelect, layoutTypeContainer;
         let stationSelect, deviceTypeSelect, connectionTypeSelect;
         let criticalOnlyCheck, applyFiltersBtn, resetFiltersBtn;
@@ -869,6 +868,7 @@
             mynetwork = document.getElementById('mynetwork');
             portTopologyContainer = document.getElementById('port-topology-container');
             portTopologySvg = document.getElementById('port-topology-svg');
+            portTopologySection = document.getElementById('port-topology-section');
             levelSelect = document.getElementById('level-select');
             layoutTypeSelect = document.getElementById('layout-type-select');
             layoutTypeContainer = document.getElementById('layout-type-container');
@@ -879,16 +879,16 @@
             applyFiltersBtn = document.getElementById('apply-filters-btn');
             resetFiltersBtn = document.getElementById('reset-filters-btn');
             fullscreenBtn = document.getElementById('fullscreen-btn');
-            portFullscreenBtn = document.getElementById('port-fullscreen-btn');
+            portFullscreenBtn = document.getElementById('port-topology-fullscreen-btn');
             // 仅A端视图相关元素
             onlySelectedDeviceContainer = document.getElementById('only-selected-device-container');
             onlySelectedDeviceCheck = document.getElementById('only-selected-device-check');
             
             // 端口拓扑图相关元素
-            portLayoutTypeSelect = document.getElementById('port-layout-type-select');
+            portLayoutTypeSelect = document.getElementById('port-layout-select');
             portFilterSelect = document.getElementById('port-filter-select');
             showPortLabelsCheck = document.getElementById('show-port-labels-check');
-            refreshPortBtn = document.getElementById('refresh-port-btn');
+            refreshPortBtn = document.getElementById('refresh-port-topology-btn');
             groupSizeContainer = document.getElementById('group-size-container');
             groupSizeInput = document.getElementById('group-size-input');
             // 新增：汇聚/展开按钮的引用
@@ -896,12 +896,25 @@
             collapseAllBtn = document.getElementById('collapse-all-btn');
             expandAllBtn = document.getElementById('expand-all-btn');
             
+            // 实例化端口拓扑管理器（单实例）
+            if (!window.portTopologyManager && typeof PortTopologyManager === 'function') {
+                window.portTopologyManager = new PortTopologyManager();
+            }
+            
             // 创建悬停提示框
             function createTooltip() {
                 if (!tooltip) {
                     tooltip = document.createElement('div');
                     tooltip.className = 'node-tooltip';
                     tooltip.style.position = 'absolute';
+                    tooltip.style.background = 'rgba(0, 0, 0, 0.8)';
+                    tooltip.style.color = 'white';
+                    tooltip.style.padding = '8px 12px';
+                    tooltip.style.borderRadius = '4px';
+                    tooltip.style.fontSize = '12px';
+                    tooltip.style.zIndex = '1000';
+                    tooltip.style.pointerEvents = 'none';
+                    tooltip.style.maxWidth = '300px';
                     tooltip.style.display = 'none';
                     document.body.appendChild(tooltip);
                 }
@@ -1097,23 +1110,45 @@
             if (showPortLabelsCheck) {
                 showPortLabelsCheck.addEventListener('change', togglePortLabels);
             }
-            
-            // 显示设备拓扑图
-            function showDeviceTopology() {
-                if (mynetwork) mynetwork.style.display = 'block';
-                if (portTopologyContainer) portTopologyContainer.style.display = 'none';
+            // 端口拓扑全屏按钮（统一调用 PortTopologyManager.toggleFullscreen）
+            if (portFullscreenBtn) {
+                portFullscreenBtn.addEventListener('click', function () {
+                    try {
+                        if (window.portTopologyManager && typeof window.portTopologyManager.toggleFullscreen === 'function') {
+                            window.portTopologyManager.toggleFullscreen();
+                        } else {
+                            console.warn('PortTopologyManager 未就绪，暂无法切换全屏');
+                        }
+                    } catch (err) {
+                        console.error('切换端口拓扑全屏失败:', err);
+                    }
+                });
+            }
+            // 端口拓扑关闭按钮
+            const closePortTopologyBtn = document.getElementById('close-port-topology-btn');
+            if (closePortTopologyBtn) {
+                closePortTopologyBtn.addEventListener('click', function () {
+                    if (levelSelect) levelSelect.value = '2';
+                    showDeviceTopology();
+                });
             }
             
             // 显示端口拓扑图
             function showPortTopology() {
                 if (mynetwork) mynetwork.style.display = 'none';
                 if (portTopologyContainer) portTopologyContainer.style.display = 'block';
+                if (portTopologySection) portTopologySection.style.display = 'block';
                 
                 // 检查是否已选择设备
                 if (!currentDeviceId) {
                     // 显示提示信息
                     showPortTopologyHint();
                     return;
+                }
+                
+                // 兜底：若未实例化则先实例化（单实例）
+                if (!window.portTopologyManager && typeof PortTopologyManager === 'function') {
+                    window.portTopologyManager = new PortTopologyManager();
                 }
                 
                 // 初始化端口拓扑图
@@ -1154,14 +1189,13 @@
                 }
                 
                 try {
-                    // 显示加载状态
-                    if (portTopologyContainer) {
-                        portTopologyContainer.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div><strong class="ms-3">正在加载端口拓扑图...</strong></div>';
-                    }
-                    
                     // 初始化端口拓扑管理器
                     if (window.portTopologyManager) {
                         window.portTopologyManager.initialize('port-topology-container');
+                        // 使用管理器的遮罩层显示加载状态
+                        if (window.portTopologyManager.showLoading) {
+                            window.portTopologyManager.showLoading();
+                        }
                         
                         // 构建端口拓扑图API URL - 使用正确的端口拓扑图端点
                         let apiUrl = `/api/port-topology/${currentDeviceId}`;
@@ -1184,7 +1218,20 @@
                         if (data.nodes && data.edges) {
                             // 更新端口拓扑图数据
                             window.portTopologyManager.updateTopologyData(data);
+                            
+                            // 在数据更新后，应用当前布局选择，确保刷新或筛选后布局保持一致
+                            if (portLayoutTypeSelect && typeof updatePortLayout === 'function') {
+                                updatePortLayout();
+                            }
+                            // 隐藏加载遮罩
+                            if (window.portTopologyManager.hideLoading) {
+                                window.portTopologyManager.hideLoading();
+                            }
                         } else {
+                            // 隐藏加载遮罩
+                            if (window.portTopologyManager.hideLoading) {
+                                window.portTopologyManager.hideLoading();
+                            }
                             if (portTopologyContainer) {
                                 portTopologyContainer.innerHTML = '<div class="alert alert-info" role="alert">当前设备无端口数据可显示。</div>';
                             }
@@ -1192,7 +1239,9 @@
                     }
                 } catch (error) {
                     console.error('加载端口拓扑图失败:', error);
-                    if (portTopologyContainer) {
+                    if (window.portTopologyManager && window.portTopologyManager.showError) {
+                        window.portTopologyManager.showError(error.message || '加载端口拓扑图失败');
+                    } else if (portTopologyContainer) {
                         portTopologyContainer.innerHTML = `<div class="alert alert-warning" role="alert">
                             加载端口拓扑图时发生错误，请稍后重试。<br>
                             <small class="text-muted">错误详情: ${error.message}</small>
@@ -1205,8 +1254,15 @@
             function updatePortLayout() {
                 if (window.portTopologyManager && portLayoutTypeSelect) {
                     const layoutType = portLayoutTypeSelect.value;
-                    // 这里可以根据布局类型更新拓扑图
                     console.log('更新端口拓扑图布局:', layoutType);
+                    
+                    // 调用端口拓扑管理器的布局更新方法
+                    if (window.portTopologyManager.updateLayout) {
+                        window.portTopologyManager.updateLayout(layoutType);
+                    } else {
+                        // 如果没有updateLayout方法，重新加载拓扑图
+                        loadPortTopology();
+                    }
                 }
             }
             

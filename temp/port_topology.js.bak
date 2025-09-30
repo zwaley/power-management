@@ -1,1148 +1,9 @@
-﻿/**
- * 端口拓扑图功能模块
- * 实现端口级别的网络可视化
- */
-
-class PortTopologyManager {
-    constructor() {
-        this.network = null;
-        this.nodes = new vis.DataSet();
-        this.edges = new vis.DataSet();
-        this.container = null;
-        this.currentDeviceId = null;
-        this.isFullscreen = false;
-        // 新增：记录当前布局类型，便于拖拽事件依据布局动态调整物理引擎
-        this.currentLayout = null;
-        // 新增：一次性跳过应用已保存位置（用于“重新生成”）
-        this.skipApplySavedPositionsOnce = false;
-        
-        // 端口拓扑图配置
-        this.options = {
-            interaction: {
-                dragNodes: true,    // 允许拖拽节点
-                dragView: true,     // 允许拖拽视图
-                hover: true,        // 允许悬停
-                zoomView: true,     // 允许缩放
-                selectConnectedEdges: false,
-                multiselect: true
-            },
-            physics: {
-                enabled: false      // 默认禁用物理引擎，启用自由拖拽
-            },
-            nodes: {
-                shape: 'box',
-                margin: 8,
-                widthConstraint: {
-                    minimum: 80,
-                    maximum: 120
-                },
-                heightConstraint: {
-                    minimum: 30
-                },
-                font: {
-                    size: 12,
-                    face: 'Arial',
-                    align: 'center'
-                },
-                borderWidth: 2,
-                shadow: {
-                    enabled: true,
-                    color: 'rgba(0,0,0,0.2)',
-                    size: 5,
-                    x: 2,
-                    y: 2
-                }
-            },
-            edges: {
-                width: 2,
-                color: {
-                    color: '#2196F3',
-                    highlight: '#FF5722',
-                    hover: '#FF9800'
-                },
-                smooth: {
-                    enabled: true,
-                    type: 'continuous',
-                    roundness: 0.2
-                },
-                arrows: {
-                    to: {
-                        enabled: false
-                    }
-                },
-                font: {
-                    size: 10,
-                    align: 'middle'
-                }
-            },
-            layout: {
-                improvedLayout: false,  // 禁用改进布局，使用固定坐标
-                hierarchical: {
-                    enabled: false
-                }
-            },
-            physics: {
-                enabled: false  // 禁用物理引擎，启用完全自由拖拽
-            },
-            interaction: {
-                dragNodes: true,  // 允许拖拽节点（水平和垂直方向）
-                dragView: true,   // 允许拖拽视图
-                zoomView: true,   // 允许缩放
-                selectConnectedEdges: false
-            }
-        };
-    }
-
-    /**
-     * 初始化端口拓扑图
-     */
-    initialize(containerId) {
-        this.container = document.getElementById(containerId);
-        if (!this.container) {
-            console.error('端口拓扑图容器未找到:', containerId);
-            return false;
-        }
-
-        // 创建网络图
-        const data = {
-            nodes: this.nodes,
-            edges: this.edges
-        };
-        
-        this.network = new vis.Network(this.container, data, this.options);
-        
-        // 绑定事件
-        this.bindEvents();
-        
-        return true;
-    }
-
-    /**
-     * 绑定网络图事件
-     */
-    bindEvents() {
-        if (!this.network) return;
-
-        // 节点点击事件
-        this.network.on('click', (params) => {
-            if (params.nodes.length > 0) {
-                const nodeId = params.nodes[0];
-                this.onNodeClick(nodeId);
-            }
-        });
-
-        // 节点双击事件
-        this.network.on('doubleClick', (params) => {
-            if (params.nodes.length > 0) {
-                const nodeId = params.nodes[0];
-                this.onNodeDoubleClick(nodeId);
-            }
-        });
-
-        // 拖拽开始事件
-        this.network.on('dragStart', (params) => {
-            if (params.nodes.length > 0) {
-                this.onDragStart(params.nodes);
-            }
-        });
-
-        // 拖拽结束事件
-        this.network.on('dragEnd', (params) => {
-            if (params.nodes.length > 0) {
-                this.onDragEnd(params.nodes);
-            }
-        });
-
-        // 悬停事件
-        this.network.on('hoverNode', (params) => {
-            this.onNodeHover(params.node);
-        });
-
-        // 离开悬停事件
-        this.network.on('blurNode', (params) => {
-            this.onNodeBlur(params.node);
-        });
-    }
-
-    /**
-     * 加载设备的端口拓扑数据
-     */
-    async loadPortTopology(deviceId) {
-        try {
-            this.currentDeviceId = deviceId;
-            
-            // 显示加载状态
-            this.showLoading();
-            
-            // 获取端口拓扑数据
-            const response = await fetch(`/api/port-topology/${deviceId}`);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            
-            // 更新图形数据
-            this.updateTopologyData(data);
-            
-            // 隐藏加载状态
-            this.hideLoading();
-            
-        } catch (error) {
-            console.error('加载端口拓扑数据失败:', error);
-            this.showError('加载端口拓扑数据失败: ' + error.message);
-            
-            // 记录错误到后端
-            this.logError('TOPOLOGY_LOAD', 'ERROR', error.message, {
-                deviceId: deviceId,
-                timestamp: new Date().toISOString()
-            });
-            // 确保异常时也结束加载态
-            this.hideLoading();
-        }
-    }
-    /**
-     * 更新拓扑图数据
-     */
-    updateTopologyData(data, options = {}) {
-        try {
-            // 清空现有数据
-            this.nodes.clear();
-            this.edges.clear();
-
-            // 若明确要求重置位置，则清除本地缓存并跳过一次应用
-            if (options && options.resetPositions === true) {
-                this.clearSavedPositions();
-                this.skipApplySavedPositionsOnce = true;
-            }
-
-            // 处理后端API返回的节点数据格式 {nodes: [], edges: []}
-            if (data.nodes && Array.isArray(data.nodes)) {
-                // 直接使用后端返回的节点数据，这些数据已经包含了vis.js需要的格式
-                const processedNodes = data.nodes.map(node => ({
-                    id: node.id,
-                    // 统一清洗名称：去下划线，在“机房”后换行，端口采用两行可读格式
-                    label: this.formatLabel(node),
-                    title: node.title || this.generateNodeTitle(node),
-                    color: node.color || this.getDefaultNodeColor(node.nodeType),
-                    shape: node.shape || 'box',
-                    size: node.size || 30,
-                    font: node.font || { size: 12, color: '#000000' },
-                    x: node.x,
-                    y: node.y,
-                    // 保存原始数据
-                    nodeData: {
-                        ...node,
-                        nodeType: node.nodeType || node.type  // 确保nodeType字段存在
-                    }
-                }));
-                
-                // 去重并使用 update 防止重复ID导致异常
-                const seenNodeIds = new Set();
-                const uniqueNodes = [];
-                for (const n of processedNodes) {
-                    if (n && n.id != null && !seenNodeIds.has(n.id)) {
-                        seenNodeIds.add(n.id);
-                        uniqueNodes.push(n);
-                    }
-                }
-                this.nodes.update(uniqueNodes);
-            }
-            
-            // 处理后端API返回的边数据格式
-            if (data.edges && Array.isArray(data.edges)) {
-                // 直接使用后端返回的边数据，这些数据已经包含了vis.js需要的格式
-                const processedEdges = data.edges.map(edge => ({
-                    id: edge.id,
-                    from: edge.from,
-                    to: edge.to,
-                    label: edge.label || '',
-                    title: edge.title || this.generateEdgeTitle(edge),
-                    color: edge.color || '#848484',
-                    width: edge.width || 2,
-                    arrows: edge.arrows || 'to',
-                    // 保存原始数据
-                    edgeData: edge
-                }));
-                
-                // 去重并使用 update 防止重复ID导致异常
-                const seenEdgeIds = new Set();
-                const uniqueEdges = [];
-                for (const e of processedEdges) {
-                    if (e && e.id != null && !seenEdgeIds.has(e.id)) {
-                        seenEdgeIds.add(e.id);
-                        uniqueEdges.push(e);
-                    }
-                }
-                this.edges.update(uniqueEdges);
-            }
-            
-            // 尝试恢复已保存的节点位置（若存在，且未被要求跳过）
-            if (!this.skipApplySavedPositionsOnce) {
-                this.applySavedNodePositions();
-            } else {
-                // 跳过一次后立即恢复默认行为
-                this.skipApplySavedPositionsOnce = false;
-            }
-            
-            // 自动调整视图
-            setTimeout(() => {
-                if (this.network) {
-                    this.network.fit();
-                }
-            }, 500);
-            
-        } catch (error) {
-            console.error('更新拓扑数据失败:', error);
-            this.showError('更新拓扑数据失败: ' + error.message);
-        }
-    }
-
-    /**
-     * 生成节点标题（悬停提示）
-     */
-    generateNodeTitle(node) {
-        const sanitize = (v) => String(v || '').replace(/_/g, '');
-        let title = `节点: ${sanitize(node.label || node.id)}`;
-        if (node.nodeType) title += `\n类型: ${sanitize(node.nodeType)}`;
-        if (node.deviceType) title += `\n设备类型: ${sanitize(node.deviceType)}`;
-        if (node.station) title += `\n站点: ${sanitize(node.station)}`;
-        if (node.portName) title += `\n端口: ${sanitize(node.portName)}`;
-        if (node.portCount) title += `\n端口数: ${sanitize(node.portCount)}`;
-        return title;
-    }
-
-    /**
-     * 生成边标题（悬停提示）
-     */
-    generateEdgeTitle(edge) {
-        let title = `连接: ${edge.from} -> ${edge.to}`;
-        if (edge.connection_type) title += `\n类型: ${edge.connection_type}`;
-        if (edge.cable_model) title += `\n线缆型号: ${edge.cable_model}`;
-        if (edge.cable_type) title += `\n线缆类型: ${edge.cable_type}`;
-        if (edge.remark) title += `\n备注: ${edge.remark}`;
-        return title;
-    }
-
-    // 名称格式化：去掉下划线；若包含“机房”，在其后插入换行；端口节点采用两行格式（位置/设备-端口）
-    formatLabel(node) {
-        try {
-            const sanitize = (v) => String(v || '').replace(/_/g, '');
-            const raw = sanitize(node.label || '');
-            const withBreak = raw.replace(/机房(?!\n)/, '机房\n');
-            if (node.nodeType === 'port') {
-                const location = sanitize(node.station || node.site || '');
-                const dev = sanitize(node.deviceName || node.device_name || '');
-                const port = sanitize(node.portName || node.port_name || '');
-                const left = location ? location.replace(/机房(?!\n)/, '机房\n') : withBreak;
-                const right = [dev, port].filter(Boolean).join('-');
-                return [left, right].filter(Boolean).join('\n');
-            }
-            return withBreak;
-        } catch (e) {
-            console.warn('格式化标签失败:', e);
-            return String(node.label || '');
-        }
-    }
-
-    /**
-     * 获取默认节点颜色
-     */
-    getDefaultNodeColor(nodeType) {
-        const colors = {
-            'device': '#97C2FC',      // 蓝色 - 设备
-            'port': '#FFA500',        // 橙色 - 端口
-            'remote_device': '#90EE90', // 浅绿色 - 远程设备
-            'bus': '#FFB6C1'          // 浅粉色 - 总线
-        };
-        
-        return {
-            background: colors[nodeType] || colors.device,
-            border: '#2B7CE9',
-            highlight: {
-                background: colors[nodeType] || colors.device,
-                border: '#000000'
-            }
-        };
-    }
-
-    /**
-     * 获取端口颜色
-     */
-    getPortColor(status) {
-        const colors = {
-            'active': '#4CAF50',    // 绿色 - 活跃
-            'inactive': '#9E9E9E',  // 灰色 - 非活跃
-            'error': '#F44336',     // 红色 - 错误
-            'warning': '#FF9800',   // 橙色 - 警告
-            'unknown': '#607D8B'    // 蓝灰色 - 未知
-        };
-        
-        return {
-            background: colors[status] || colors.unknown,
-            border: '#333333',
-            highlight: {
-                background: colors[status] || colors.unknown,
-                border: '#000000'
-            }
-        };
-    }
-
-    /**
-     * 获取连接颜色
-     */
-    getConnectionColor(status) {
-        const colors = {
-            'active': '#4CAF50',
-            'inactive': '#9E9E9E',
-            'error': '#F44336',
-            'warning': '#FF9800'
-        };
-        
-        return colors[status] || '#2196F3';
-    }
-
-    /**
-     * 节点点击处理
-     */
-    onNodeClick(nodeId) {
-        const node = this.nodes.get(nodeId);
-        if (node && node.nodeData) {
-            this.showNodeDetails(node.nodeData);
-        }
-    }
-
-    /**
-     * 节点双击处理
-     */
-    onNodeDoubleClick(nodeId) {
-        const node = this.nodes.get(nodeId);
-        if (node && node.nodeData) {
-            // 双击可以打开节点配置界面或显示详细信息
-            this.openNodeConfig(node.nodeData);
-        }
-    }
-
-    /**
-     * 拖拽开始处理
-     */
-    onDragStart(nodeIds) {
-        // 根据当前布局决定物理引擎状态
-        if (this.currentLayout === 'force') {
-            // 力导向布局下，保持物理引擎启用，以便拖拽后继续收敛
-            this.network.setOptions({ physics: { enabled: true } });
-        } else {
-            // 非力导向布局禁用物理引擎，保证位置固定、拖拽稳定
-            this.network.setOptions({ physics: { enabled: false } });
-        }
-    }
-
-    /**
-     * 拖拽结束处理
-     */
-    onDragEnd(nodeIds) {
-        // 根据当前布局决定物理引擎状态
-        if (this.currentLayout === 'force') {
-            // 维持物理引擎启用，并进行短暂稳定以加速收敛
-            this.network.setOptions({ physics: { enabled: true } });
-            this.network.stabilize(100);
-        } else {
-            // 非力导向布局保持禁用，位置不被算法更改
-            this.network.setOptions({ physics: { enabled: false } });
-        }
-        // 保存节点位置
-        this.saveNodePositions(nodeIds);
-    }
-
-    /**
-     * 节点悬停处理
-     */
-    onNodeHover(nodeId) {
-        const node = this.nodes.get(nodeId);
-        if (node && node.portData) {
-            // 显示详细信息提示
-            this.showTooltip(node.portData);
-        }
-    }
-
-    /**
-     * 节点离开悬停处理
-     */
-    onNodeBlur(nodeId) {
-        // 隐藏提示
-        this.hideTooltip();
-    }
-
-    /**
-     * 显示端口详情
-     */
-    showPortDetails(portData) {
-        // 实现端口详情显示逻辑
-        console.log('显示端口详情:', portData);
-    }
-
-    /**
-     * 打开端口配置
-     */
-    openPortConfig(portData) {
-        // 实现端口配置界面
-        console.log('打开端口配置:', portData);
-    }
-
-    /**
-     * 保存节点位置
-     */
-    saveNodePositions(nodeIds) {
-        // 将当前拖拽的节点坐标保存到本地存储（按设备与布局区分）
-        try {
-            if (!this.network || !this.nodes || !Array.isArray(nodeIds) || nodeIds.length === 0) return;
-            if (!this.currentDeviceId || !this.currentLayout) {
-                console.warn('保存节点位置时缺少当前设备或布局信息');
-            }
-            const key = this.getPositionStorageKey();
-            const existing = this.getSavedPositions();
-            // 从 Network 获取节点当前坐标
-            const posMap = this.network.getPositions(nodeIds);
-            // 合并到 existing
-            for (const nid of Object.keys(posMap)) {
-                const p = posMap[nid];
-                if (p && typeof p.x === 'number' && typeof p.y === 'number') {
-                    existing[nid] = { x: p.x, y: p.y };
-                }
-            }
-            // 写回本地存储
-            this.setSavedPositions(existing);
-            console.log('已保存节点位置到本地存储:', key);
-        } catch (e) {
-            console.warn('保存节点位置失败:', e);
-        }
-    }
-
-    // 新增：根据设备与布局生成存储键，确保不同设备/布局的位置互不干扰
-    getPositionStorageKey() {
-        try {
-            const devicePart = this.currentDeviceId ? String(this.currentDeviceId) : 'unknown_device';
-            const layoutPart = this.currentLayout ? String(this.currentLayout) : 'unknown_layout';
-            return `portTopologyPositions:${devicePart}:${layoutPart}`;
-        } catch (e) {
-            console.warn('生成存储键失败:', e);
-            return 'portTopologyPositions:unknown_device:unknown_layout';
-        }
-    }
-
-    // 新增：获取本地已保存的节点位置
-    getSavedPositions() {
-        try {
-            const key = this.getPositionStorageKey();
-            const raw = localStorage.getItem(key);
-            if (!raw) return {};
-            const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed === 'object') return parsed;
-            return {};
-        } catch (e) {
-            console.warn('读取已保存节点位置失败:', e);
-            return {};
-        }
-    }
-
-    // 新增：写入本地节点位置
-    setSavedPositions(positions) {
-        try {
-            const key = this.getPositionStorageKey();
-            localStorage.setItem(key, JSON.stringify(positions || {}));
-        } catch (e) {
-            console.warn('写入节点位置失败:', e);
-        }
-    }
-
-    // 新增：清空当前设备与布局的本地已保存位置
-    clearSavedPositions() {
-        try {
-            const key = this.getPositionStorageKey();
-            localStorage.removeItem(key);
-            // 也清理数据集中可能遗留的 fixed 标记
-            const allNodes = this.nodes.get();
-            if (Array.isArray(allNodes) && allNodes.length > 0) {
-                const reset = allNodes.map(n => ({ id: n.id, fixed: { x: false, y: false } }));
-                this.nodes.update(reset);
-            }
-        } catch (e) {
-            console.warn('清空已保存位置失败:', e);
-        }
-    }
-
-    // 新增：应用本地已保存的节点位置（不固定 x/y，允许用户任意拖拽）
-    applySavedNodePositions() {
-        try {
-            if (!this.network || !this.nodes) return;
-            const saved = this.getSavedPositions();
-            const ids = Object.keys(saved || {});
-            if (ids.length === 0) return;
-            // 关闭物理引擎，避免自动重排
-            this.network.setOptions({ physics: { enabled: false } });
-            for (const id of ids) {
-                const p = saved[id];
-                if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') continue;
-                // 更新数据集中的坐标并固定节点
-                if (this.nodes.get(id)) {
-                    // 不再固定坐标，允许用户继续拖拽
-                    this.nodes.update({ id, x: p.x, y: p.y, fixed: { x: false, y: false } });
-                }
-                // 强制网络对象移动到指定坐标
-                this.network.moveNode(id, p.x, p.y);
-            }
-            // 重绘以生效
-            this.network.redraw();
-            console.log('已应用本地保存的节点位置');
-        } catch (e) {
-            console.warn('应用已保存节点位置失败:', e);
-        }
-    }
-
-    /**
-     * 显示节点提示
-     * @param {Object} portData - 端口数据
-     */
-    showTooltip(portData) {
-        // 移除已存在的提示框
-        this.hideTooltip();
-        
-        // 创建提示框元素
-        const tooltip = document.createElement('div');
-        tooltip.id = 'port-tooltip';
-        tooltip.className = 'node-tooltip';
-        
-        // 生成提示内容
-        let tooltipContent = `
-            <div class="tooltip-header">端口信息</div>
-            <div class="tooltip-content">
-                <div><strong>设备:</strong> ${portData.deviceName || '未知'}</div>
-                <div><strong>端口:</strong> ${portData.portName || '未知'}</div>
-                <div><strong>端口类型:</strong> ${portData.portType || '未知'}</div>
-                ${portData.voltage ? `<div><strong>电压等级:</strong> ${portData.voltage}</div>` : ''}
-                ${portData.current ? `<div><strong>额定电流:</strong> ${portData.current}</div>` : ''}
-                ${portData.status ? `<div><strong>状态:</strong> ${portData.status}</div>` : ''}
-                ${portData.remark ? `<div><strong>备注:</strong> ${portData.remark}</div>` : ''}
-            </div>
-        `;
-        
-        tooltip.innerHTML = tooltipContent;
-        
-        // 设置提示框位置 - 跟随鼠标位置
-        const updateTooltipPosition = (event) => {
-            tooltip.style.position = 'absolute';
-            tooltip.style.left = (event.clientX + 10) + 'px';
-            tooltip.style.top = (event.clientY - 10) + 'px';
-            tooltip.style.zIndex = '9999';
-        };
-        
-        // 初始位置设置
-        document.addEventListener('mousemove', updateTooltipPosition);
-        tooltip.addEventListener('remove', () => {
-            document.removeEventListener('mousemove', updateTooltipPosition);
-        });
-        
-        // 添加到页面
-        document.body.appendChild(tooltip);
-        
-        console.log('显示端口提示:', portData);
-    }
-
-    /**
-     * 隐藏提示
-     */
-    hideTooltip() {
-        const existingTooltip = document.getElementById('port-tooltip');
-        if (existingTooltip) {
-            existingTooltip.remove();
-        }
-        console.log('隐藏端口提示');
-    }
-
-    /**
-     * 显示节点详情
-     */
-    showNodeDetails(nodeData) {
-        console.log('显示节点详情:', nodeData);
-        
-        // 创建详情弹窗
-        const modal = document.createElement('div');
-        modal.className = 'modal fade';
-        modal.id = 'nodeDetailsModal';
-        modal.innerHTML = `
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">节点详情</h5>
-                        <button type="button" class="close" data-dismiss="modal">
-                            <span>&times;</span>
-                        </button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h6>基本信息</h6>
-                                <table class="table table-sm">
-                                    <tr><td><strong>节点ID:</strong></td><td>${nodeData.id || '未知'}</td></tr>
-                                    <tr><td><strong>节点名称:</strong></td><td>${nodeData.label || '未知'}</td></tr>
-                                    <tr><td><strong>节点类型:</strong></td><td>${nodeData.type || '未知'}</td></tr>
-                                    ${nodeData.device_name ? `<tr><td><strong>设备名称:</strong></td><td>${nodeData.device_name}</td></tr>` : ''}
-                                    ${nodeData.port_name ? `<tr><td><strong>端口名称:</strong></td><td>${nodeData.port_name}</td></tr>` : ''}
-                                </table>
-                            </div>
-                            <div class="col-md-6">
-                                <h6>技术参数</h6>
-                                <table class="table table-sm">
-                                    ${nodeData.voltage ? `<tr><td><strong>电压等级:</strong></td><td>${nodeData.voltage}</td></tr>` : ''}
-                                    ${nodeData.current ? `<tr><td><strong>额定电流:</strong></td><td>${nodeData.current}</td></tr>` : ''}
-                                    ${nodeData.power ? `<tr><td><strong>功率:</strong></td><td>${nodeData.power}</td></tr>` : ''}
-                                    ${nodeData.status ? `<tr><td><strong>状态:</strong></td><td>${nodeData.status}</td></tr>` : ''}
-                                    ${nodeData.remark ? `<tr><td><strong>备注:</strong></td><td>${nodeData.remark}</td></tr>` : ''}
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // 移除已存在的弹窗
-        const existingModal = document.getElementById('nodeDetailsModal');
-        if (existingModal) {
-            existingModal.remove();
-        }
-        // 添加到页面并显示
-        document.body.appendChild(modal);
-        if (typeof $ !== 'undefined' && $.fn && $.fn.modal) {
-            $(modal).modal('show');
-            $(modal).on('hidden.bs.modal', function() {
-                modal.remove();
-            });
-        } else {
-            // 若无Bootstrap环境，降级为可关闭的纯JS弹窗
-            modal.style.display = 'block';
-            modal.style.position = 'fixed';
-            modal.style.inset = '0';
-            modal.style.zIndex = '9999';
-            modal.style.background = 'rgba(0,0,0,0.3)';
-            const dialog = modal.querySelector('.modal-dialog');
-            if (dialog) dialog.style.margin = '10% auto';
-            const doClose = () => { try { modal.remove(); } catch (_) {} };
-            const closeBtn = modal.querySelector('.close');
-            const footerCloseBtn = modal.querySelector('[data-dismiss="modal"]');
-            if (closeBtn) closeBtn.addEventListener('click', doClose);
-            if (footerCloseBtn) footerCloseBtn.addEventListener('click', doClose);
-            modal.addEventListener('click', (e) => { if (e.target === modal) doClose(); });
-            document.addEventListener('keydown', function escHandler(e) {
-                if (e.key === 'Escape') {
-                    document.removeEventListener('keydown', escHandler);
-                    doClose();
-                }
-            });
-        }
-    }
-
-    // 打开节点配置（当前先复用详情弹窗）
-    openNodeConfig(nodeData) {
-        console.log('打开节点配置:', nodeData);
-        this.showNodeDetails(nodeData);
-    }
-
-    // 显示加载（使用遮罩层，不覆盖网络图内容）
-    showLoading() {
-        if (this.container) {
-            const overlayId = 'topology-loading-overlay';
-            let overlay = this.container.querySelector(`#${overlayId}`);
-            if (!overlay) {
-                overlay = document.createElement('div');
-                overlay.id = overlayId;
-                overlay.style.position = 'absolute';
-                overlay.style.inset = '0';
-                overlay.style.background = 'rgba(255,255,255,0.85)';
-                overlay.style.zIndex = '10';
-                overlay.style.display = 'flex';
-                overlay.style.alignItems = 'center';
-                overlay.style.justifyContent = 'center';
-                overlay.innerHTML = '<div class="d-flex justify-content-center align-items-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div><strong class="ms-3">正在加载端口拓扑图...</strong></div>';
-                this.container.appendChild(overlay);
-            } else {
-                overlay.style.display = 'flex';
-            }
-        }
-    }
-
-    // 隐藏加载（移除遮罩层）
-    hideLoading() {
-        if (this.container) {
-            const overlay = this.container.querySelector('#topology-loading-overlay');
-            if (overlay) overlay.remove();
-        }
-    }
-
-    // 显示错误（使用遮罩层）
-    showError(message) {
-        console.error('PortTopologyManager Error:', message);
-        if (this.container) {
-            const loading = this.container.querySelector('#topology-loading-overlay');
-            if (loading) loading.remove();
-            const errorId = 'topology-error-overlay';
-            let overlay = this.container.querySelector(`#${errorId}`);
-            if (!overlay) {
-                overlay = document.createElement('div');
-                overlay.id = errorId;
-                overlay.style.position = 'absolute';
-                overlay.style.inset = '0';
-                overlay.style.background = 'rgba(255,255,255,0.9)';
-                overlay.style.zIndex = '10';
-                overlay.style.display = 'flex';
-                overlay.style.alignItems = 'center';
-                overlay.style.justifyContent = 'center';
-                overlay.innerHTML = `<div class="alert alert-warning m-3" role="alert">\n                    加载端口拓扑图时发生错误，请稍后重试。<br>\n                    <small class="text-muted">错误详情: ${message}</small>\n                </div>`;
-                this.container.appendChild(overlay);
-            } else {
-                overlay.style.display = 'flex';
-            }
-        }
-    }
-
-    // 重复方法已移除：统一使用设备+布局维度的存储与应用实现（见前文 getPositionStorageKey / getSavedPositions / setSavedPositions / applySavedNodePositions）
-
-    // 记录错误
-    async logError(category, level, message, context) {
-        try {
-            const formData = new FormData();
-            formData.append('category', category);
-            formData.append('level', level);
-            formData.append('message', message);
-            formData.append('context', JSON.stringify(context || {}));
-            await fetch('/api/log-error', { method: 'POST', body: formData });
-        } catch (error) {
-            console.error('记录错误失败:', error);
-        }
-    }
-
-    // 切换全屏（旧版保留为 Legacy，避免覆盖新版实现）
-    toggleFullscreenLegacy() {
-        this.isFullscreen = !this.isFullscreen;
-        if (this.container) {
-            if (this.isFullscreen) {
-                this.container.classList.add('fullscreen-topology');
-            } else {
-                this.container.classList.remove('fullscreen-topology');
-            }
-            setTimeout(() => {
-                if (this.network) {
-                    this.network.redraw();
-                    this.network.fit();
-                }
-            }, 100);
-        }
-    }
-
-    // 新增：与CSS匹配的全屏开关（graph.html 已调用此方法）
-    toggleFullscreen() {
-        if (!this.container) return;
-        this.isFullscreen = !this.isFullscreen;
-        const cls = 'fullscreen';
-        this.container.classList.toggle(cls, this.isFullscreen);
-        try {
-            if (this.isFullscreen) {
-                if (this.container.requestFullscreen) this.container.requestFullscreen();
-            } else if (document.fullscreenElement) {
-                if (document.exitFullscreen) document.exitFullscreen();
-            }
-        } catch (_) {}
-        setTimeout(() => {
-            if (this.network) {
-                this.network.redraw();
-                this.network.fit();
-            }
-        }, 120);
-    }
-
-    // 新版布局：禁用 hierarchical，使用容器尺寸驱动的自定义坐标（LR/UD），并保持拖拽与位置保存
-    updateLayout(layoutType) {
-        if (!this.network) {
-            console.warn('网络图未初始化');
-            return;
-        }
-        // 记录当前布局
-        this.currentLayout = layoutType;
-        console.log('更新端口拓扑图布局(新):', layoutType);
-
-        // 基础设置：禁用物理引擎与平滑，避免自动重排；保留边箭头等配置
-        this.network.setOptions({
-            layout: { improvedLayout: false, hierarchical: { enabled: false } },
-            physics: { enabled: false },
-            edges: { smooth: { enabled: false } }
-        });
-
-        const containerW = (this.container && this.container.clientWidth) || 1000;
-        const containerH = (this.container && this.container.clientHeight) || 600;
-        const centerX = Math.round(containerW / 2);
-        const centerY = Math.round(containerH / 2);
-
-        const nodesArr = this.nodes.get();
-        const edgesArr = this.edges.get();
-        const byId = new Map(nodesArr.map(n => [String(n.id), n]));
-
-        // 构建无向邻接表
-        const neighbors = new Map();
-        const addNeighbor = (a, b) => {
-            const A = String(a), B = String(b);
-            if (!neighbors.has(A)) neighbors.set(A, new Set());
-            if (!neighbors.has(B)) neighbors.set(B, new Set());
-            neighbors.get(A).add(B);
-            neighbors.get(B).add(A);
-        };
-        for (const e of edgesArr) {
-            if (e && e.from != null && e.to != null) addNeighbor(e.from, e.to);
-        }
-
-        const isDevice = (n) => n && n.nodeData && (n.nodeData.nodeType === 'device' || n.nodeData.type === 'device');
-        const isPort = (n) => n && n.nodeData && (n.nodeData.nodeType === 'port' || n.nodeData.type === 'port');
-        const isRemoteDevice = (n) => n && n.nodeData && (n.nodeData.nodeType === 'remote_device' || n.nodeData.type === 'remote_device');
-
-        // 选定中心设备：优先匹配当前 deviceId，其次首个 device
-        let centerNode = nodesArr.find(n => isDevice(n) && (String(n.nodeData.id || n.nodeData.device_id || n.id) === String(this.currentDeviceId)));
-        if (!centerNode) centerNode = nodesArr.find(isDevice) || nodesArr[0];
-        if (!centerNode) {
-            console.warn('未找到中心设备节点，跳过布局');
-            return;
-        }
-
-        // 本端端口：与中心设备直接相邻的端口
-        const neighborIds = Array.from((neighbors.get(String(centerNode.id)) || new Set()).values());
-        const localPorts = neighborIds.map(id => byId.get(String(id))).filter(isPort);
-
-        // 针对每个本端端口，寻找对端（远端端口或设备）
-        const portPairRows = [];
-        for (const lp of localPorts) {
-            const lpNeighbors = Array.from((neighbors.get(String(lp.id)) || new Set()).values());
-            const remoteCandidates = lpNeighbors.map(id => byId.get(String(id))).filter(n => n && n.id !== centerNode.id);
-            // 过滤非法对端（例如名称为 nan/null/未知站点 等），并允许端口或设备作为对端
-            const isInvalidName = (txt) => {
-                if (!txt) return true;
-                const t = String(txt).trim().toLowerCase();
-                return t === 'nan' || t === 'null' || t === 'none' || t === '' || t === '未知站点';
-            };
-            const isInvalidNode = (n) => isInvalidName(n?.label) || isInvalidName(n?.nodeData?.device_name) || isInvalidName(n?.nodeData?.name);
-            const remotes = remoteCandidates.filter(n => (isPort(n) || isRemoteDevice(n) || isDevice(n)) && !isInvalidNode(n));
-            portPairRows.push({ localPort: lp, remotes });
-        }
-
-        // 布局参数
-        const colGap = Math.max(180, Math.round(containerW * 0.18));
-        const rowGap = 80; // 行间距
-        const half = Math.ceil(localPorts.length / 2);
-        const leftRows = portPairRows.slice(0, half);
-        const rightRows = portPairRows.slice(half);
-        const startYLeft = centerY - Math.round(((leftRows.length - 1) * rowGap) / 2);
-        const startYRight = centerY - Math.round(((rightRows.length - 1) * rowGap) / 2);
-
-        // 准备坐标集合
-        const updates = [];
-
-        if (layoutType === 'hierarchicalLR') {
-            // 中心设备居中
-            updates.push({ id: centerNode.id, x: centerX, y: centerY, fixed: { x: false, y: false } });
-            // 左半列：本端端口在左，对端在右
-            leftRows.forEach((row, idx) => {
-                const y = startYLeft + idx * rowGap;
-                if (row.localPort) updates.push({ id: row.localPort.id, x: centerX - colGap, y, fixed: { x: false, y: false } });
-                row.remotes.forEach((r, jdx) => {
-                    const x = centerX + colGap + jdx * 140;
-                    updates.push({ id: r.id, x, y, fixed: { x: false, y: false } });
-                });
-            });
-            // 右半列：本端端口在右，对端在左（保持左右均衡）
-            rightRows.forEach((row, idx) => {
-                const y = startYRight + idx * rowGap;
-                if (row.localPort) updates.push({ id: row.localPort.id, x: centerX + colGap, y, fixed: { x: false, y: false } });
-                row.remotes.forEach((r, jdx) => {
-                    const x = centerX - colGap - jdx * 140;
-                    updates.push({ id: r.id, x, y, fixed: { x: false, y: false } });
-                });
-            });
-        } else if (layoutType === 'hierarchicalUD') {
-            // 中心设备居中
-            updates.push({ id: centerNode.id, x: centerX, y: centerY, fixed: { x: false, y: false } });
-            // 上半部：本端端口在上，对端在下
-            const startXTop = centerX - Math.round(((leftRows.length - 1) * rowGap) / 2);
-            leftRows.forEach((row, idx) => {
-                const x = startXTop + idx * rowGap;
-                if (row.localPort) updates.push({ id: row.localPort.id, x, y: centerY - colGap, fixed: { x: false, y: false } });
-                row.remotes.forEach((r, jdx) => {
-                    const y = centerY + colGap + jdx * 120;
-                    updates.push({ id: r.id, x, y, fixed: { x: false, y: false } });
-                });
-            });
-            // 下半部：本端端口在下，对端在上
-            const startXBottom = centerX - Math.round(((rightRows.length - 1) * rowGap) / 2);
-            rightRows.forEach((row, idx) => {
-                const x = startXBottom + idx * rowGap;
-                if (row.localPort) updates.push({ id: row.localPort.id, x, y: centerY + colGap, fixed: { x: false, y: false } });
-                row.remotes.forEach((r, jdx) => {
-                    const y = centerY - colGap - jdx * 120;
-                    updates.push({ id: r.id, x, y, fixed: { x: false, y: false } });
-                });
-            });
-        } else if (layoutType === 'force') {
-            // 回退到力导向配置
-            this.updateLayoutLegacy('force');
-            return;
-        } else {
-            console.warn('未知布局类型(新):', layoutType);
-            return;
-        }
-
-        // 在应用新坐标前，先清空旧坐标，避免缓存影响
-        try {
-            const allNodes = this.nodes.get();
-            if (Array.isArray(allNodes) && allNodes.length > 0) {
-                const reset = allNodes.map(n => ({ id: n.id, x: null, y: null, fixed: { x: false, y: false } }));
-                this.nodes.update(reset);
-            }
-        } catch (e) { console.warn('清空旧坐标失败:', e); }
-
-        // 应用坐标
-        this.nodes.update(updates);
-        for (const u of updates) {
-            try { this.network.moveNode(u.id, u.x, u.y); } catch (e) {}
-        }
-
-        // 优先恢复本地保存位置（若存在且未被要求跳过），以遵循用户拖拽偏好
-        if (!this.skipApplySavedPositionsOnce) {
-            this.applySavedNodePositions();
-        } else {
-            this.skipApplySavedPositionsOnce = false;
-        }
-
-        // 重绘与自适应
-        this.network.redraw();
-        setTimeout(() => this.network.fit(), 100);
-    }
-
-    // 更新布局（旧版保留为 Legacy，避免覆盖新版实现）
-    updateLayoutLegacy(layoutType) {
-        if (!this.network) {
-            console.warn('网络图未初始化');
-            return;
-        }
-        // 记录当前布局
-        this.currentLayout = layoutType;
-        console.log('更新端口拓扑图布局:', layoutType);
-
-        // 切换布局前清空坐标与固定状态，确保重新布局生效
-        try {
-            const allNodes = this.nodes.get();
-            if (Array.isArray(allNodes) && allNodes.length > 0) {
-                const resetNodes = allNodes.map(n => ({ id: n.id, x: null, y: null, fixed: { x: false, y: false } }));
-                this.nodes.update(resetNodes);
-            }
-        } catch (e) {
-            console.warn('清除节点坐标失败:', e);
-        }
-
-        let newOptions = {};
-        switch (layoutType) {
-            case 'hierarchicalLR':
-                newOptions = {
-                    layout: {
-                        improvedLayout: true,
-                        hierarchical: {
-                            enabled: true,
-                            direction: 'LR',
-                            sortMethod: 'directed',
-                            levelSeparation: 160,
-                            nodeSpacing: 120,
-                            treeSpacing: 220
-                        }
-                    },
-                    edges: { smooth: { enabled: false } },
-                    physics: { enabled: false }
-                };
-                break;
-            case 'hierarchicalUD':
-                newOptions = {
-                    layout: {
-                        improvedLayout: true,
-                        hierarchical: {
-                            enabled: true,
-                            direction: 'UD',
-                            sortMethod: 'directed',
-                            levelSeparation: 120,
-                            nodeSpacing: 140,
-                            treeSpacing: 220
-                        }
-                    },
-                    edges: { smooth: { enabled: false } },
-                    physics: { enabled: false }
-                };
-                break;
-            case 'force':
-                newOptions = {
-                    layout: {
-                        improvedLayout: false,
-                        hierarchical: { enabled: false }
-                    },
-                    edges: { smooth: { enabled: true, type: 'continuous', roundness: 0.2 } },
-                    physics: {
-                        enabled: true,
-                        solver: 'forceAtlas2Based',
-                        forceAtlas2Based: {
-                            gravitationalConstant: -30,
-                            centralGravity: 0.02,
-                            springLength: 85,
-                            springConstant: 0.12,
-                            damping: 0.55,
-                            avoidOverlap: 0.8
-                        },
-                        stabilization: { enabled: true, iterations: 900, updateInterval: 50 }
-                    }
-                };
-                break;
-            default:
-                console.warn('未知的布局类型:', layoutType);
-                return;
-        }
-        // 应用新的配置
-        this.network.setOptions(newOptions);
-        // 让 Network 重新读取 DataSet，避免内部缓存旧坐标
-        this.network.setData({ nodes: this.nodes, edges: this.edges });
-        // 触发重绘与必要的稳定过程
-        if (newOptions.physics && newOptions.physics.enabled) {
-            this.network.stabilize(200);
-        }
-        this.network.redraw();
-        setTimeout(() => this.network.fit(), 100);
-    }
-
-    // 销毁（旧版保留为 Legacy，避免覆盖新版实现）
-    destroyLegacy() {
-        if (this.network) {
-            this.network.destroy();
-            this.network = null;
-        }
-        this.nodes.clear();
-        this.edges.clear();
-        this.container = null;
-        this.currentDeviceId = null;
-    }
-}
-
-// 全局端口拓扑管理器实例初始化位置已统一至文件末尾（幂等），此处移除以避免重复与语法错误
-
-
 /**
  * 端口拓扑图功能模块
  * 实现端口级别的网络可视化
  */
 
-class PortTopologyManager_Backup3 {
+class PortTopologyManager_Backup2 {
     constructor() {
         this.network = null;
         this.nodes = new vis.DataSet();
@@ -1334,15 +195,13 @@ class PortTopologyManager_Backup3 {
                 deviceId: deviceId,
                 timestamp: new Date().toISOString()
             });
-            // 确保异常时也结束加载态
-            this.hideLoading();
         }
     }
 
     /**
-     * 更新拓扑图数据（Legacy备份版本）
+     * 更新拓扑图数据
      */
-    updateTopologyDataLegacy(data) {
+    updateTopologyData(data) {
         try {
             // 清空现有数据
             this.nodes.clear();
@@ -1365,16 +224,7 @@ class PortTopologyManager_Backup3 {
                     nodeData: node
                 }));
                 
-                // 去重并使用 update 防止重复ID导致异常
-                const seenNodeIds = new Set();
-                const uniqueNodes = [];
-                for (const n of processedNodes) {
-                    if (n && n.id != null && !seenNodeIds.has(n.id)) {
-                        seenNodeIds.add(n.id);
-                        uniqueNodes.push(n);
-                    }
-                }
-                this.nodes.update(uniqueNodes);
+                this.nodes.add(processedNodes);
             }
             
             // 处理后端API返回的边数据格式
@@ -1393,16 +243,7 @@ class PortTopologyManager_Backup3 {
                     edgeData: edge
                 }));
                 
-                // 去重并使用 update 防止重复ID导致异常
-                const seenEdgeIds = new Set();
-                const uniqueEdges = [];
-                for (const e of processedEdges) {
-                    if (e && e.id != null && !seenEdgeIds.has(e.id)) {
-                        seenEdgeIds.add(e.id);
-                        uniqueEdges.push(e);
-                    }
-                }
-                this.edges.update(uniqueEdges);
+                this.edges.add(processedEdges);
             }
             
             // 尝试恢复已保存的节点位置（若存在）
@@ -1611,14 +452,34 @@ class PortTopologyManager_Backup3 {
                 }
             }
             this.setSavedPositions(existing);
-                        console.log('已保存节点位置到本地存储:', key);
-
+            console.log('已保存节点位置到本地存储:', key);
+        } catch (e) {
+            console.warn('保存节点位置失败:', e);
+        }
+    }
+});
+        } catch (e) {
+            console.warn('保存节点位置失败:', e);
+        }
+    }
+});
+        } catch (e) {
+            console.warn('保存节点位置失败:', e);
+        }
+    }
+});
+        } catch (e) {
+            console.warn('保存节点位置失败:', e);
+        }
+    });
         } catch (e) {
             console.warn('保存节点位置失败:', e);
         }
     }
 
-    // 新增：根据设备与布局生成存储键，确保不同设备/布局的位置互不干扰
+    /**
+     * 生成节点位置存储键（按设备与布局区分）
+     */
     getPositionStorageKey() {
         try {
             const devicePart = this.currentDeviceId ? String(this.currentDeviceId) : 'unknown_device';
@@ -1630,7 +491,9 @@ class PortTopologyManager_Backup3 {
         }
     }
 
-    // 新增：获取本地已保存的节点位置
+    /**
+     * 获取已保存的节点位置
+     */
     getSavedPositions() {
         try {
             const key = this.getPositionStorageKey();
@@ -1645,7 +508,9 @@ class PortTopologyManager_Backup3 {
         }
     }
 
-    // 新增：写入本地节点位置
+    /**
+     * 设置已保存的节点位置
+     */
     setSavedPositions(positions) {
         try {
             const key = this.getPositionStorageKey();
@@ -1655,7 +520,9 @@ class PortTopologyManager_Backup3 {
         }
     }
 
-    // 新增：应用本地已保存的节点位置，并固定坐标
+    /**
+     * 应用已保存的节点位置（并固定坐标）
+     */
     applySavedNodePositions() {
         try {
             if (!this.network || !this.nodes) return;
@@ -1683,33 +550,34 @@ class PortTopologyManager_Backup3 {
     }
 
     /**
-     * 显示节点提示（端口级）
+     * 显示节点提示
      * @param {Object} portData - 端口数据
      */
     showTooltip(portData) {
         // 移除已存在的提示框
         this.hideTooltip();
-        if (!portData) return;
+        
         // 创建提示框元素
         const tooltip = document.createElement('div');
         tooltip.id = 'port-tooltip';
         tooltip.className = 'node-tooltip';
-
+        
         // 生成提示内容
         let tooltipContent = `
             <div class="tooltip-header">端口信息</div>
             <div class="tooltip-content">
-                <div><strong>设备:</strong> ${portData.deviceName || portData.device_name || '未知'}</div>
-                <div><strong>端口:</strong> ${portData.portName || portData.port_name || '未知'}</div>
-                <div><strong>端口类型:</strong> ${portData.portType || portData.port_type || '未知'}</div>
+                <div><strong>设备:</strong> ${portData.deviceName || '未知'}</div>
+                <div><strong>端口:</strong> ${portData.portName || '未知'}</div>
+                <div><strong>端口类型:</strong> ${portData.portType || '未知'}</div>
                 ${portData.voltage ? `<div><strong>电压等级:</strong> ${portData.voltage}</div>` : ''}
                 ${portData.current ? `<div><strong>额定电流:</strong> ${portData.current}</div>` : ''}
                 ${portData.status ? `<div><strong>状态:</strong> ${portData.status}</div>` : ''}
                 ${portData.remark ? `<div><strong>备注:</strong> ${portData.remark}</div>` : ''}
             </div>
         `;
+        
         tooltip.innerHTML = tooltipContent;
-
+        
         // 设置提示框位置 - 跟随鼠标位置
         const updateTooltipPosition = (event) => {
             tooltip.style.position = 'absolute';
@@ -1717,28 +585,36 @@ class PortTopologyManager_Backup3 {
             tooltip.style.top = (event.clientY - 10) + 'px';
             tooltip.style.zIndex = '9999';
         };
+        
+        // 初始位置设置
         document.addEventListener('mousemove', updateTooltipPosition);
         tooltip.addEventListener('remove', () => {
             document.removeEventListener('mousemove', updateTooltipPosition);
         });
-
+        
         // 添加到页面
         document.body.appendChild(tooltip);
+        
         console.log('显示端口提示:', portData);
     }
 
-    // 隐藏提示
+    /**
+     * 隐藏提示
+     */
     hideTooltip() {
         const existingTooltip = document.getElementById('port-tooltip');
         if (existingTooltip) {
             existingTooltip.remove();
         }
+        console.log('隐藏端口提示');
     }
 
-    // 显示节点详情（通用节点信息弹窗）
+    /**
+     * 显示节点详情
+     */
     showNodeDetails(nodeData) {
         console.log('显示节点详情:', nodeData);
-        if (!nodeData) return;
+        
         // 创建详情弹窗
         const modal = document.createElement('div');
         modal.className = 'modal fade';
@@ -1758,8 +634,8 @@ class PortTopologyManager_Backup3 {
                                 <h6>基本信息</h6>
                                 <table class="table table-sm">
                                     <tr><td><strong>节点ID:</strong></td><td>${nodeData.id || '未知'}</td></tr>
-                                    <tr><td><strong>节点名称:</strong></td><td>${nodeData.label || nodeData.name || '未知'}</td></tr>
-                                    <tr><td><strong>节点类型:</strong></td><td>${nodeData.type || nodeData.nodeType || '未知'}</td></tr>
+                                    <tr><td><strong>节点名称:</strong></td><td>${nodeData.label || '未知'}</td></tr>
+                                    <tr><td><strong>节点类型:</strong></td><td>${nodeData.type || '未知'}</td></tr>
                                     ${nodeData.device_name ? `<tr><td><strong>设备名称:</strong></td><td>${nodeData.device_name}</td></tr>` : ''}
                                     ${nodeData.port_name ? `<tr><td><strong>端口名称:</strong></td><td>${nodeData.port_name}</td></tr>` : ''}
                                 </table>
@@ -1782,133 +658,113 @@ class PortTopologyManager_Backup3 {
                 </div>
             </div>
         `;
-
+        
         // 移除已存在的弹窗
         const existingModal = document.getElementById('nodeDetailsModal');
         if (existingModal) {
             existingModal.remove();
         }
+        
         // 添加到页面并显示
         document.body.appendChild(modal);
-        if (typeof $ !== 'undefined' && $.fn && $.fn.modal) {
-            $(modal).modal('show');
-            $(modal).on('hidden.bs.modal', function() {
-                modal.remove();
-            });
-        } else {
-            // 若无Bootstrap环境，降级为简单显示
-            modal.style.display = 'block';
-        }
+        $(modal).modal('show');
+        
+        // 弹窗关闭后移除DOM元素
+        $(modal).on('hidden.bs.modal', function() {
+            modal.remove();
+        });
     }
 
-    // 打开节点配置（当前先复用详情弹窗）
+    /**
+     * 打开节点配置
+     */
     openNodeConfig(nodeData) {
         console.log('打开节点配置:', nodeData);
+        // 这里可以实现节点配置功能
+        // 暂时显示详情
         this.showNodeDetails(nodeData);
     }
 
-    // 显示加载（使用遮罩层，不覆盖网络图内容）
+    /**
+     * 显示加载状态
+     */
     showLoading() {
         if (this.container) {
-            const overlayId = 'topology-loading-overlay';
-            let overlay = this.container.querySelector(`#${overlayId}`);
-            if (!overlay) {
-                overlay = document.createElement('div');
-                overlay.id = overlayId;
-                overlay.style.position = 'absolute';
-                overlay.style.inset = '0';
-                overlay.style.background = 'rgba(255,255,255,0.85)';
-                overlay.style.zIndex = '10';
-                overlay.style.display = 'flex';
-                overlay.style.alignItems = 'center';
-                overlay.style.justifyContent = 'center';
-                overlay.innerHTML = '<div class="d-flex justify-content-center align-items-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div><strong class="ms-3">正在加载端口拓扑图...</strong></div>';
-                this.container.appendChild(overlay);
-            } else {
-                overlay.style.display = 'flex';
-            }
+            this.container.innerHTML = '<div class="text-center p-4"><div class="spinner-border" role="status"><span class="sr-only">加载中...</span></div></div>';
         }
     }
 
-    // 隐藏加载（移除遮罩层）
+    /**
+     * 隐藏加载状态
+     */
     hideLoading() {
-        if (this.container) {
-            const overlay = this.container.querySelector('#topology-loading-overlay');
-            if (overlay) overlay.remove();
-        }
+        // 加载状态会在网络图初始化时自动清除
     }
 
-    // 显示错误（使用遮罩层）
+    /**
+     * 显示错误信息
+     */
     showError(message) {
-        console.error('PortTopologyManager Error:', message);
         if (this.container) {
-            const loading = this.container.querySelector('#topology-loading-overlay');
-            if (loading) loading.remove();
-            const errorId = 'topology-error-overlay';
-            let overlay = this.container.querySelector(`#${errorId}`);
-            if (!overlay) {
-                overlay = document.createElement('div');
-                overlay.id = errorId;
-                overlay.style.position = 'absolute';
-                overlay.style.inset = '0';
-                overlay.style.background = 'rgba(255,255,255,0.9)';
-                overlay.style.zIndex = '10';
-                overlay.style.display = 'flex';
-                overlay.style.alignItems = 'center';
-                overlay.style.justifyContent = 'center';
-                overlay.innerHTML = `<div class=\"alert alert-warning m-3\" role=\"alert\">\n                加载端口拓扑图时发生错误，请稍后重试。<br>\n                <small class=\"text-muted\">错误详情: ${message}</small>\n            </div>`;
-                this.container.appendChild(overlay);
-            } else {
-                overlay.style.display = 'flex';
-            }
+            this.container.innerHTML = `<div class="alert alert-danger" role="alert">${message}</div>`;
         }
     }
 
-    // 重复方法已移除：统一使用设备+布局维度的存储与应用实现（见前文 getPositionStorageKey / getSavedPositions / setSavedPositions / applySavedNodePositions）
-
-    // 记录错误
+    /**
+     * 记录错误到后端
+     */
     async logError(category, level, message, context) {
         try {
             const formData = new FormData();
             formData.append('category', category);
             formData.append('level', level);
             formData.append('message', message);
-            formData.append('context', JSON.stringify(context || {}));
-            await fetch('/api/log-error', { method: 'POST', body: formData });
+            formData.append('context', JSON.stringify(context));
+            
+            await fetch('/api/log-error', {
+                method: 'POST',
+                body: formData
+            });
         } catch (error) {
             console.error('记录错误失败:', error);
         }
     }
 
-    // 切换全屏（旧版保留为 Legacy，避免覆盖新版实现）
-    toggleFullscreenLegacy() {
+    /**
+     * 切换全屏模式
+     */
+    toggleFullscreen() {
         this.isFullscreen = !this.isFullscreen;
-        if (this.container) {
-            if (this.isFullscreen) {
-                this.container.classList.add('fullscreen-topology');
-            } else {
-                this.container.classList.remove('fullscreen-topology');
-            }
-            setTimeout(() => {
-                if (this.network) {
-                    this.network.redraw();
-                    this.network.fit();
-                }
-            }, 100);
+        
+        if (this.isFullscreen) {
+            this.container.classList.add('fullscreen-topology');
+        } else {
+            this.container.classList.remove('fullscreen-topology');
         }
+        
+        // 重新调整网络图大小
+        setTimeout(() => {
+            if (this.network) {
+                this.network.redraw();
+                this.network.fit();
+            }
+        }, 100);
     }
 
-    // 更新布局（旧版保留为 Legacy，避免覆盖新版实现）
-    updateLayoutLegacy(layoutType) {
+    /**
+     * 更新布局类型
+     */
+    updateLayout(layoutType) {
         if (!this.network) {
             console.warn('网络图未初始化');
             return;
         }
-        // 记录当前布局
+        // 记录当前布局类型
         this.currentLayout = layoutType;
+        
         console.log('更新端口拓扑图布局:', layoutType);
-
-        // 切换布局前清空坐标与固定状态，确保重新布局生效
+        
+        // 在切换布局前，清空所有节点的坐标与固定状态，确保重新布局生效
         try {
             const allNodes = this.nodes.get();
             if (Array.isArray(allNodes) && allNodes.length > 0) {
@@ -1918,8 +774,10 @@ class PortTopologyManager_Backup3 {
         } catch (e) {
             console.warn('清除节点坐标失败:', e);
         }
-
+        
+        // 根据布局类型更新配置
         let newOptions = {};
+        
         switch (layoutType) {
             case 'hierarchicalLR':
                 newOptions = {
@@ -1934,10 +792,15 @@ class PortTopologyManager_Backup3 {
                             treeSpacing: 220
                         }
                     },
-                    edges: { smooth: { enabled: false } },
-                    physics: { enabled: false }
+                    edges: {
+                        smooth: { enabled: false }
+                    },
+                    physics: {
+                        enabled: false
+                    }
                 };
                 break;
+                
             case 'hierarchicalUD':
                 newOptions = {
                     layout: {
@@ -1951,17 +814,26 @@ class PortTopologyManager_Backup3 {
                             treeSpacing: 220
                         }
                     },
-                    edges: { smooth: { enabled: false } },
-                    physics: { enabled: false }
+                    edges: {
+                        smooth: { enabled: false }
+                    },
+                    physics: {
+                        enabled: false
+                    }
                 };
                 break;
+                
             case 'force':
                 newOptions = {
                     layout: {
                         improvedLayout: false,
-                        hierarchical: { enabled: false }
+                        hierarchical: {
+                            enabled: false
+                        }
                     },
-                    edges: { smooth: { enabled: true, type: 'continuous', roundness: 0.2 } },
+                    edges: {
+                        smooth: { enabled: true, type: 'continuous', roundness: 0.2 }
+                    },
                     physics: {
                         enabled: true,
                         solver: 'forceAtlas2Based',
@@ -1973,32 +845,46 @@ class PortTopologyManager_Backup3 {
                             damping: 0.55,
                             avoidOverlap: 0.8
                         },
-                        stabilization: { enabled: true, iterations: 900, updateInterval: 50 }
+                        stabilization: {
+                            enabled: true,
+                            iterations: 900,
+                            updateInterval: 50
+                        }
                     }
                 };
                 break;
+                
             default:
                 console.warn('未知的布局类型:', layoutType);
                 return;
         }
+        
         // 应用新的配置
         this.network.setOptions(newOptions);
-        // 让 Network 重新读取 DataSet，避免内部缓存旧坐标
+        
+        // 强制让 Network 重新读取 DataSet，避免内部缓存旧坐标
         this.network.setData({ nodes: this.nodes, edges: this.edges });
+        
         // 触发重绘与必要的稳定过程
         if (newOptions.physics && newOptions.physics.enabled) {
+            // 力导向布局需要进行稳定以收敛
             this.network.stabilize(200);
         }
         this.network.redraw();
-        setTimeout(() => this.network.fit(), 100);
+        
+        // 切换布局后尝试恢复已保存的位置
+        this.applySavedNodePositions();
     }
 
-    // 销毁（旧版保留为 Legacy，避免覆盖新版实现）
-    destroyLegacy() {
+    /**
+     * 销毁端口拓扑图
+     */
+    destroy() {
         if (this.network) {
             this.network.destroy();
             this.network = null;
         }
+        
         this.nodes.clear();
         this.edges.clear();
         this.container = null;
@@ -2014,7 +900,7 @@ class PortTopologyManager_Backup3 {
  * 实现端口级别的网络可视化
  */
 
-class PortTopologyManager_Backup4 {
+class PortTopologyManager_Backup3 {
     constructor() {
         this.network = null;
         this.nodes = new vis.DataSet();
@@ -2206,8 +1092,1050 @@ class PortTopologyManager_Backup4 {
                 deviceId: deviceId,
                 timestamp: new Date().toISOString()
             });
-            // 确保异常时也结束加载态
-            this.hideLoading();
         }
     }
+
+    /**
+     * 更新拓扑图数据
+     */
+    updateTopologyData(data) {
+        try {
+            // 清空现有数据
+            this.nodes.clear();
+            this.edges.clear();
+            
+            // 处理后端API返回的节点数据格式 {nodes: [], edges: []}
+            if (data.nodes && Array.isArray(data.nodes)) {
+                // 直接使用后端返回的节点数据，这些数据已经包含了vis.js需要的格式
+                const processedNodes = data.nodes.map(node => ({
+                    id: node.id,
+                    label: node.label,
+                    title: node.title || this.generateNodeTitle(node),
+                    color: node.color || this.getDefaultNodeColor(node.nodeType),
+                    shape: node.shape || 'box',
+                    size: node.size || 30,
+                    font: node.font || { size: 12, color: '#000000' },
+                    x: node.x,
+                    y: node.y,
+                    // 保存原始数据
+                    nodeData: node
+                }));
+                
+                this.nodes.add(processedNodes);
+            }
+            
+            // 处理后端API返回的边数据格式
+            if (data.edges && Array.isArray(data.edges)) {
+                // 直接使用后端返回的边数据，这些数据已经包含了vis.js需要的格式
+                const processedEdges = data.edges.map(edge => ({
+                    id: edge.id,
+                    from: edge.from,
+                    to: edge.to,
+                    label: edge.label || '',
+                    title: edge.title || this.generateEdgeTitle(edge),
+                    color: edge.color || '#848484',
+                    width: edge.width || 2,
+                    arrows: edge.arrows || 'to',
+                    // 保存原始数据
+                    edgeData: edge
+                }));
+                
+                this.edges.add(processedEdges);
+            }
+            
+            // 尝试恢复已保存的节点位置（若存在）
+            this.applySavedNodePositions();
+            
+            // 自动调整视图
+            setTimeout(() => {
+                if (this.network) {
+                    this.network.fit();
+                }
+            }, 500);
+            
+        } catch (error) {
+            console.error('更新拓扑数据失败:', error);
+            this.showError('更新拓扑数据失败: ' + error.message);
+        }
+    }
+
+    /**
+     * 生成节点标题（悬停提示）
+     */
+    generateNodeTitle(node) {
+        let title = `节点: ${node.label || node.id}`;
+        if (node.nodeType) title += `\n类型: ${node.nodeType}`;
+        if (node.deviceType) title += `\n设备类型: ${node.deviceType}`;
+        if (node.station) title += `\n站点: ${node.station}`;
+        if (node.portName) title += `\n端口: ${node.portName}`;
+        if (node.portCount) title += `\n端口数: ${node.portCount}`;
+        return title;
+    }
+
+    /**
+     * 生成边标题（悬停提示）
+     */
+    generateEdgeTitle(edge) {
+        let title = `连接: ${edge.from} -> ${edge.to}`;
+        if (edge.connection_type) title += `\n类型: ${edge.connection_type}`;
+        if (edge.cable_model) title += `\n线缆型号: ${edge.cable_model}`;
+        if (edge.cable_type) title += `\n线缆类型: ${edge.cable_type}`;
+        if (edge.remark) title += `\n备注: ${edge.remark}`;
+        return title;
+    }
+
+    /**
+     * 获取默认节点颜色
+     */
+    getDefaultNodeColor(nodeType) {
+        const colors = {
+            'device': '#97C2FC',      // 蓝色 - 设备
+            'port': '#FFA500',        // 橙色 - 端口
+            'remote_device': '#90EE90', // 浅绿色 - 远程设备
+            'bus': '#FFB6C1'          // 浅粉色 - 总线
+        };
+        
+        return {
+            background: colors[nodeType] || colors.device,
+            border: '#2B7CE9',
+            highlight: {
+                background: colors[nodeType] || colors.device,
+                border: '#000000'
+            }
+        };
+    }
+
+    /**
+     * 获取端口颜色
+     */
+    getPortColor(status) {
+        const colors = {
+            'active': '#4CAF50',    // 绿色 - 活跃
+            'inactive': '#9E9E9E',  // 灰色 - 非活跃
+            'error': '#F44336',     // 红色 - 错误
+            'warning': '#FF9800',   // 橙色 - 警告
+            'unknown': '#607D8B'    // 蓝灰色 - 未知
+        };
+        
+        return {
+            background: colors[status] || colors.unknown,
+            border: '#333333',
+            highlight: {
+                background: colors[status] || colors.unknown,
+                border: '#000000'
+            }
+        };
+    }
+
+    /**
+     * 获取连接颜色
+     */
+    getConnectionColor(status) {
+        const colors = {
+            'active': '#4CAF50',
+            'inactive': '#9E9E9E',
+            'error': '#F44336',
+            'warning': '#FF9800'
+        };
+        
+        return colors[status] || '#2196F3';
+    }
+
+    /**
+     * 节点点击处理
+     */
+    onNodeClick(nodeId) {
+        const node = this.nodes.get(nodeId);
+        if (node && node.nodeData) {
+            this.showNodeDetails(node.nodeData);
+        }
+    }
+
+    /**
+     * 节点双击处理
+     */
+    onNodeDoubleClick(nodeId) {
+        const node = this.nodes.get(nodeId);
+        if (node && node.nodeData) {
+            // 双击可以打开节点配置界面或显示详细信息
+            this.openNodeConfig(node.nodeData);
+        }
+    }
+
+    /**
+     * 拖拽开始处理
+     */
+    onDragStart(nodeIds) {
+        // 根据当前布局决定物理引擎状态
+        if (this.currentLayout === 'force') {
+            // 力导向布局下，保持物理引擎启用，以便拖拽后继续收敛
+            this.network.setOptions({ physics: { enabled: true } });
+        } else {
+            // 非力导向布局禁用物理引擎，保证位置固定、拖拽稳定
+            this.network.setOptions({ physics: { enabled: false } });
+        }
+    }
+
+    /**
+     * 拖拽结束处理
+     */
+    onDragEnd(nodeIds) {
+        // 根据当前布局决定物理引擎状态
+        if (this.currentLayout === 'force') {
+            // 维持物理引擎启用，并进行短暂稳定以加速收敛
+            this.network.setOptions({ physics: { enabled: true } });
+            this.network.stabilize(100);
+        } else {
+            // 非力导向布局保持禁用，位置不被算法更改
+            this.network.setOptions({ physics: { enabled: false } });
+        }
+        // 保存节点位置
+        this.saveNodePositions(nodeIds);
+    }
+
+    /**
+     * 节点悬停处理
+     */
+    onNodeHover(nodeId) {
+        const node = this.nodes.get(nodeId);
+        if (node && node.portData) {
+            // 显示详细信息提示
+            this.showTooltip(node.portData);
+        }
+    }
+
+    /**
+     * 节点离开悬停处理
+     */
+    onNodeBlur(nodeId) {
+        // 隐藏提示
+        this.hideTooltip();
+    }
+
+    /**
+     * 显示端口详情
+     */
+    showPortDetails(portData) {
+        // 实现端口详情显示逻辑
+        console.log('显示端口详情:', portData);
+    }
+
+    /**
+     * 打开端口配置
+     */
+    openPortConfig(portData) {
+        // 实现端口配置界面
+        console.log('打开端口配置:', portData);
+    }
+
+    /**
+     * 保存节点位置
+     */
+    saveNodePositions(nodeIds) {
+        // 实现节点位置保存逻辑
+        console.log('保存节点位置:', nodeIds);
+    }
+
+    /**
+     * 显示节点提示
+     * @param {Object} portData - 端口数据
+     */
+    showTooltip(portData) {
+        // 移除已存在的提示框
+        this.hideTooltip();
+        
+        // 创建提示框元素
+        const tooltip = document.createElement('div');
+        tooltip.id = 'port-tooltip';
+        tooltip.className = 'node-tooltip';
+        
+        // 生成提示内容
+        let tooltipContent = `
+            <div class="tooltip-header">端口信息</div>
+            <div class="tooltip-content">
+                <div><strong>设备:</strong> ${portData.deviceName || '未知'}</div>
+                <div><strong>端口:</strong> ${portData.portName || '未知'}</div>
+                <div><strong>端口类型:</strong> ${portData.portType || '未知'}</div>
+                ${portData.voltage ? `<div><strong>电压等级:</strong> ${portData.voltage}</div>` : ''}
+                ${portData.current ? `<div><strong>额定电流:</strong> ${portData.current}</div>` : ''}
+                ${portData.status ? `<div><strong>状态:</strong> ${portData.status}</div>` : ''}
+                ${portData.remark ? `<div><strong>备注:</strong> ${portData.remark}</div>` : ''}
+            </div>
+        `;
+        
+        tooltip.innerHTML = tooltipContent;
+        
+        // 设置提示框位置 - 跟随鼠标位置
+        const updateTooltipPosition = (event) => {
+            tooltip.style.position = 'absolute';
+            tooltip.style.left = (event.clientX + 10) + 'px';
+            tooltip.style.top = (event.clientY - 10) + 'px';
+            tooltip.style.zIndex = '9999';
+        };
+        
+        // 初始位置设置
+        document.addEventListener('mousemove', updateTooltipPosition);
+        tooltip.addEventListener('remove', () => {
+            document.removeEventListener('mousemove', updateTooltipPosition);
+        });
+        
+        // 添加到页面
+        document.body.appendChild(tooltip);
+        
+        console.log('显示端口提示:', portData);
+    }
+
+    /**
+     * 隐藏提示
+     */
+    hideTooltip() {
+        const existingTooltip = document.getElementById('port-tooltip');
+        if (existingTooltip) {
+            existingTooltip.remove();
+        }
+        console.log('隐藏端口提示');
+    }
+
+    /**
+     * 显示节点详情
+     */
+    showNodeDetails(nodeData) {
+        console.log('显示节点详情:', nodeData);
+        
+        // 创建详情弹窗
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.id = 'nodeDetailsModal';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">节点详情</h5>
+                        <button type="button" class="close" data-dismiss="modal">
+                            <span>&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>基本信息</h6>
+                                <table class="table table-sm">
+                                    <tr><td><strong>节点ID:</strong></td><td>${nodeData.id || '未知'}</td></tr>
+                                    <tr><td><strong>节点名称:</strong></td><td>${nodeData.label || '未知'}</td></tr>
+                                    <tr><td><strong>节点类型:</strong></td><td>${nodeData.type || '未知'}</td></tr>
+                                    ${nodeData.device_name ? `<tr><td><strong>设备名称:</strong></td><td>${nodeData.device_name}</td></tr>` : ''}
+                                    ${nodeData.port_name ? `<tr><td><strong>端口名称:</strong></td><td>${nodeData.port_name}</td></tr>` : ''}
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>技术参数</h6>
+                                <table class="table table-sm">
+                                    ${nodeData.voltage ? `<tr><td><strong>电压等级:</strong></td><td>${nodeData.voltage}</td></tr>` : ''}
+                                    ${nodeData.current ? `<tr><td><strong>额定电流:</strong></td><td>${nodeData.current}</td></tr>` : ''}
+                                    ${nodeData.power ? `<tr><td><strong>功率:</strong></td><td>${nodeData.power}</td></tr>` : ''}
+                                    ${nodeData.status ? `<tr><td><strong>状态:</strong></td><td>${nodeData.status}</td></tr>` : ''}
+                                    ${nodeData.remark ? `<tr><td><strong>备注:</strong></td><td>${nodeData.remark}</td></tr>` : ''}
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 移除已存在的弹窗
+        const existingModal = document.getElementById('nodeDetailsModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // 添加到页面并显示
+        document.body.appendChild(modal);
+        $(modal).modal('show');
+        
+        // 弹窗关闭后移除DOM元素
+        $(modal).on('hidden.bs.modal', function() {
+            modal.remove();
+        });
+    }
+
+    /**
+     * 打开节点配置
+     */
+    openNodeConfig(nodeData) {
+        console.log('打开节点配置:', nodeData);
+        // 这里可以实现节点配置功能
+        // 暂时显示详情
+        this.showNodeDetails(nodeData);
+    }
+
+    /**
+     * 显示加载状态
+     */
+    showLoading() {
+        if (this.container) {
+            this.container.innerHTML = '<div class="text-center p-4"><div class="spinner-border" role="status"><span class="sr-only">加载中...</span></div></div>';
+        }
+    }
+
+    /**
+     * 隐藏加载状态
+     */
+    hideLoading() {
+        // 加载状态会在网络图初始化时自动清除
+    }
+
+    /**
+     * 显示错误信息
+     */
+    showError(message) {
+        if (this.container) {
+            this.container.innerHTML = `<div class="alert alert-danger" role="alert">${message}</div>`;
+        }
+    }
+
+    /**
+     * 记录错误到后端
+     */
+    async logError(category, level, message, context) {
+        try {
+            const formData = new FormData();
+            formData.append('category', category);
+            formData.append('level', level);
+            formData.append('message', message);
+            formData.append('context', JSON.stringify(context));
+            
+            await fetch('/api/log-error', {
+                method: 'POST',
+                body: formData
+            });
+        } catch (error) {
+            console.error('记录错误失败:', error);
+        }
+    }
+
+    /**
+     * 切换全屏模式
+     */
+    toggleFullscreen() {
+        this.isFullscreen = !this.isFullscreen;
+        
+        if (this.isFullscreen) {
+            this.container.classList.add('fullscreen-topology');
+        } else {
+            this.container.classList.remove('fullscreen-topology');
+        }
+        
+        // 重新调整网络图大小
+        setTimeout(() => {
+            if (this.network) {
+                this.network.redraw();
+                this.network.fit();
+            }
+        }, 100);
+    }
+
+    /**
+     * 更新布局类型
+     */
+    updateLayout(layoutType) {
+        if (!this.network) {
+            console.warn('网络图未初始化');
+            return;
+        }
+        // 记录当前布局类型
+        this.currentLayout = layoutType;
+        
+        console.log('更新端口拓扑图布局:', layoutType);
+        
+        // 在切换布局前，清空所有节点的坐标与固定状态，确保重新布局生效
+        try {
+            const allNodes = this.nodes.get();
+            if (Array.isArray(allNodes) && allNodes.length > 0) {
+                const resetNodes = allNodes.map(n => ({ id: n.id, x: null, y: null, fixed: { x: false, y: false } }));
+                this.nodes.update(resetNodes);
+            }
+        } catch (e) {
+            console.warn('清除节点坐标失败:', e);
+        }
+        
+        // 根据布局类型更新配置
+        let newOptions = {};
+        
+        switch (layoutType) {
+            case 'hierarchicalLR':
+                newOptions = {
+                    layout: {
+                        improvedLayout: true,
+                        hierarchical: {
+                            enabled: true,
+                            direction: 'LR',
+                            sortMethod: 'directed',
+                            levelSeparation: 160,
+                            nodeSpacing: 120,
+                            treeSpacing: 220
+                        }
+                    },
+                    edges: {
+                        smooth: { enabled: false }
+                    },
+                    physics: {
+                        enabled: false
+                    }
+                };
+                break;
+                
+            case 'hierarchicalUD':
+                newOptions = {
+                    layout: {
+                        improvedLayout: true,
+                        hierarchical: {
+                            enabled: true,
+                            direction: 'UD',
+                            sortMethod: 'directed',
+                            levelSeparation: 120,
+                            nodeSpacing: 140,
+                            treeSpacing: 220
+                        }
+                    },
+                    edges: {
+                        smooth: { enabled: false }
+                    },
+                    physics: {
+                        enabled: false
+                    }
+                };
+                break;
+                
+            case 'force':
+                newOptions = {
+                    layout: {
+                        improvedLayout: false,
+                        hierarchical: {
+                            enabled: false
+                        }
+                    },
+                    edges: {
+                        smooth: { enabled: true, type: 'continuous', roundness: 0.2 }
+                    },
+                    physics: {
+                        enabled: true,
+                        solver: 'forceAtlas2Based',
+                        forceAtlas2Based: {
+                            gravitationalConstant: -30,
+                            centralGravity: 0.02,
+                            springLength: 85,
+                            springConstant: 0.12,
+                            damping: 0.55,
+                            avoidOverlap: 0.8
+                        },
+                        stabilization: {
+                            enabled: true,
+                            iterations: 900,
+                            updateInterval: 50
+                        }
+                    }
+                };
+                break;
+                
+            default:
+                console.warn('未知的布局类型:', layoutType);
+                return;
+        }
+        
+        // 应用新的配置
+        this.network.setOptions(newOptions);
+        
+        // 强制让 Network 重新读取 DataSet，避免内部缓存旧坐标
+        this.network.setData({ nodes: this.nodes, edges: this.edges });
+        
+        // 触发重绘与必要的稳定过程
+        if (newOptions.physics && newOptions.physics.enabled) {
+            // 力导向布局需要进行稳定以收敛
+            this.network.stabilize(200);
+        }
+        this.network.redraw();
+        
+        // 重新布局并自适应视图
+        setTimeout(() => {
+            this.network.fit();
+        }, 100);
+    }
+
+    /**
+     * 销毁端口拓扑图
+     */
+    destroy() {
+        if (this.network) {
+            this.network.destroy();
+            this.network = null;
+        }
+        
+        this.nodes.clear();
+        this.edges.clear();
+        this.container = null;
+        this.currentDeviceId = null;
+    }
 }
+
+// 全局端口拓扑管理器实例初始化位置已统一至文件末尾（幂等），此处移除以避免重复实例化
+
+
+/**
+ * 端口拓扑图功能模块
+ * 实现端口级别的网络可视化
+ */
+
+class PortTopologyManager {
+    constructor() {
+        this.network = null;
+        this.nodes = new vis.DataSet();
+        this.edges = new vis.DataSet();
+        this.container = null;
+        this.currentDeviceId = null;
+        this.isFullscreen = false;
+        // 新增：记录当前布局类型，便于拖拽事件依据布局动态调整物理引擎
+        this.currentLayout = null;
+        
+        // 端口拓扑图配置
+        this.options = {
+            interaction: {
+                dragNodes: true,    // 允许拖拽节点
+                dragView: true,     // 允许拖拽视图
+                hover: true,        // 允许悬停
+                zoomView: true,     // 允许缩放
+                selectConnectedEdges: false,
+                multiselect: true
+            },
+            physics: {
+                enabled: false      // 默认禁用物理引擎，启用自由拖拽
+            },
+            nodes: {
+                shape: 'box',
+                margin: 8,
+                widthConstraint: {
+                    minimum: 80,
+                    maximum: 120
+                },
+                heightConstraint: {
+                    minimum: 30
+                },
+                font: {
+                    size: 12,
+                    face: 'Arial',
+                    align: 'center'
+                },
+                borderWidth: 2,
+                shadow: {
+                    enabled: true,
+                    color: 'rgba(0,0,0,0.2)',
+                    size: 5,
+                    x: 2,
+                    y: 2
+                }
+            },
+            edges: {
+                width: 2,
+                color: {
+                    color: '#2196F3',
+                    highlight: '#FF5722',
+                    hover: '#FF9800'
+                },
+                smooth: {
+                    enabled: true,
+                    type: 'continuous',
+                    roundness: 0.2
+                },
+                arrows: {
+                    to: {
+                        enabled: false
+                    }
+                },
+                font: {
+                    size: 10,
+                    align: 'middle'
+                }
+            },
+            layout: {
+                improvedLayout: false,  // 禁用改进布局，使用固定坐标
+                hierarchical: {
+                    enabled: false
+                }
+            },
+            physics: {
+                enabled: false  // 禁用物理引擎，启用完全自由拖拽
+            },
+            interaction: {
+                dragNodes: true,  // 允许拖拽节点（水平和垂直方向）
+                dragView: true,   // 允许拖拽视图
+                zoomView: true,   // 允许缩放
+                selectConnectedEdges: false
+            }
+        };
+    }
+
+    /**
+     * 初始化端口拓扑图
+     */
+    initialize(containerId) {
+        this.container = document.getElementById(containerId);
+        if (!this.container) {
+            console.error('端口拓扑图容器未找到:', containerId);
+            return false;
+        }
+
+        // 创建网络图
+        const data = {
+            nodes: this.nodes,
+            edges: this.edges
+        };
+        
+        this.network = new vis.Network(this.container, data, this.options);
+        
+        // 绑定事件
+        this.bindEvents();
+        
+        return true;
+    }
+
+    /**
+     * 绑定网络图事件
+     */
+    bindEvents() {
+        if (!this.network) return;
+
+        // 节点点击事件
+        this.network.on('click', (params) => {
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                this.onNodeClick(nodeId);
+            }
+        });
+
+        // 节点双击事件
+        this.network.on('doubleClick', (params) => {
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                this.onNodeDoubleClick(nodeId);
+            }
+        });
+
+        // 拖拽开始事件
+        this.network.on('dragStart', (params) => {
+            if (params.nodes.length > 0) {
+                this.onDragStart(params.nodes);
+            }
+        });
+
+        // 拖拽结束事件
+        this.network.on('dragEnd', (params) => {
+            if (params.nodes.length > 0) {
+                this.onDragEnd(params.nodes);
+            }
+        });
+
+        // 悬停事件
+        this.network.on('hoverNode', (params) => {
+            this.onNodeHover(params.node);
+        });
+
+        // 离开悬停事件
+        this.network.on('blurNode', (params) => {
+            this.onNodeBlur(params.node);
+        });
+    }
+
+    /**
+     * 加载设备的端口拓扑数据
+     */
+    async loadPortTopology(deviceId) {
+        try {
+            this.currentDeviceId = deviceId;
+            
+            // 显示加载状态
+            this.showLoading();
+            
+            // 获取端口拓扑数据
+            const response = await fetch(`/api/port-topology/${deviceId}`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            // 更新图形数据
+            this.updateTopologyData(data);
+            
+            // 隐藏加载状态
+            this.hideLoading();
+            
+        } catch (error) {
+            console.error('加载端口拓扑数据失败:', error);
+            this.showError('加载端口拓扑数据失败: ' + error.message);
+            
+            // 记录错误到后端
+            this.logError('TOPOLOGY_LOAD', 'ERROR', error.message, {
+                deviceId: deviceId,
+                timestamp: new Date().toISOString()
+            });
+        }
+    }
+
+    /**
+     * 更新拓扑图数据
+     */
+    updateTopologyData(data) {
+        try {
+            // 清空现有数据
+            this.nodes.clear();
+            this.edges.clear();
+            
+            // 处理后端API返回的节点数据格式 {nodes: [], edges: []}
+            if (data.nodes && Array.isArray(data.nodes)) {
+                // 直接使用后端返回的节点数据，这些数据已经包含了vis.js需要的格式
+                const processedNodes = data.nodes.map(node => ({
+                    id: node.id,
+                    label: node.label,
+                    title: node.title || this.generateNodeTitle(node),
+                    color: node.color || this.getDefaultNodeColor(node.nodeType),
+                    shape: node.shape || 'box',
+                    size: node.size || 30,
+                    font: node.font || { size: 12, color: '#000000' },
+                    x: node.x,
+                    y: node.y,
+                    // 保存原始数据
+                    nodeData: node
+                }));
+                
+                this.nodes.add(processedNodes);
+            }
+            
+            // 处理后端API返回的边数据格式
+            if (data.edges && Array.isArray(data.edges)) {
+                // 直接使用后端返回的边数据，这些数据已经包含了vis.js需要的格式
+                const processedEdges = data.edges.map(edge => ({
+                    id: edge.id,
+                    from: edge.from,
+                    to: edge.to,
+                    label: edge.label || '',
+                    title: edge.title || this.generateEdgeTitle(edge),
+                    color: edge.color || '#848484',
+                    width: edge.width || 2,
+                    arrows: edge.arrows || 'to',
+                    // 保存原始数据
+                    edgeData: edge
+                }));
+                
+                this.edges.add(processedEdges);
+            }
+            
+            // 尝试恢复已保存的节点位置（若存在）
+            this.applySavedNodePositions();
+            
+            // 自动调整视图
+            setTimeout(() => {
+                if (this.network) {
+                    this.network.fit();
+                }
+            }, 500);
+            
+        } catch (error) {
+            console.error('更新拓扑数据失败:', error);
+            this.showError('更新拓扑数据失败: ' + error.message);
+        }
+    }
+
+    /**
+     * 生成节点标题（悬停提示）
+     */
+    generateNodeTitle(node) {
+        let title = `节点: ${node.label || node.id}`;
+        if (node.nodeType) title += `\n类型: ${node.nodeType}`;
+        if (node.deviceType) title += `\n设备类型: ${node.deviceType}`;
+        if (node.station) title += `\n站点: ${node.station}`;
+        if (node.portName) title += `\n端口: ${node.portName}`;
+        if (node.portCount) title += `\n端口数: ${node.portCount}`;
+        return title;
+    }
+
+    /**
+     * 生成边标题（悬停提示）
+     */
+    generateEdgeTitle(edge) {
+        let title = `连接: ${edge.from} -> ${edge.to}`;
+        if (edge.connection_type) title += `\n类型: ${edge.connection_type}`;
+        if (edge.cable_model) title += `\n线缆型号: ${edge.cable_model}`;
+        if (edge.cable_type) title += `\n线缆类型: ${edge.cable_type}`;
+        if (edge.remark) title += `\n备注: ${edge.remark}`;
+        return title;
+    }
+
+    /**
+     * 获取默认节点颜色
+     */
+    getDefaultNodeColor(nodeType) {
+        const colors = {
+            'device': '#97C2FC',      // 蓝色 - 设备
+            'port': '#FFA500',        // 橙色 - 端口
+            'remote_device': '#90EE90', // 浅绿色 - 远程设备
+            'bus': '#FFB6C1'          // 浅粉色 - 总线
+        };
+        
+        return {
+            background: colors[nodeType] || colors.device,
+            border: '#2B7CE9',
+            highlight: {
+                background: colors[nodeType] || colors.device,
+                border: '#000000'
+            }
+        };
+    }
+
+    /**
+     * 获取端口颜色
+     */
+    getPortColor(status) {
+        const colors = {
+            'active': '#4CAF50',    // 绿色 - 活跃
+            'inactive': '#9E9E9E',  // 灰色 - 非活跃
+            'error': '#F44336',     // 红色 - 错误
+            'warning': '#FF9800',   // 橙色 - 警告
+            'unknown': '#607D8B'    // 蓝灰色 - 未知
+        };
+        
+        return {
+            background: colors[status] || colors.unknown,
+            border: '#333333',
+            highlight: {
+                background: colors[status] || colors.unknown,
+                border: '#000000'
+            }
+        };
+    }
+
+    /**
+     * 获取连接颜色
+     */
+    getConnectionColor(status) {
+        const colors = {
+            'active': '#4CAF50',
+            'inactive': '#9E9E9E',
+            'error': '#F44336',
+            'warning': '#FF9800'
+        };
+        
+        return colors[status] || '#2196F3';
+    }
+
+    /**
+     * 节点点击处理
+     */
+    onNodeClick(nodeId) {
+        const node = this.nodes.get(nodeId);
+        if (node && node.nodeData) {
+            this.showNodeDetails(node.nodeData);
+        }
+    }
+
+    /**
+     * 节点双击处理
+     */
+    onNodeDoubleClick(nodeId) {
+        const node = this.nodes.get(nodeId);
+        if (node && node.nodeData) {
+            // 双击可以打开节点配置界面或显示详细信息
+            this.openNodeConfig(node.nodeData);
+        }
+    }
+
+    /**
+     * 拖拽开始处理
+     */
+    onDragStart(nodeIds) {
+        // 根据当前布局决定物理引擎状态
+        if (this.currentLayout === 'force') {
+            // 力导向布局下，保持物理引擎启用，以便拖拽后继续收敛
+            this.network.setOptions({ physics: { enabled: true } });
+        } else {
+            // 非力导向布局禁用物理引擎，保证位置固定、拖拽稳定
+            this.network.setOptions({ physics: { enabled: false } });
+        }
+    }
+
+    /**
+     * 拖拽结束处理
+     */
+    onDragEnd(nodeIds) {
+        // 根据当前布局决定物理引擎状态
+        if (this.currentLayout === 'force') {
+            // 维持物理引擎启用，并进行短暂稳定以加速收敛
+            this.network.setOptions({ physics: { enabled: true } });
+            this.network.stabilize(100);
+        } else {
+            // 非力导向布局保持禁用，位置不被算法更改
+            this.network.setOptions({ physics: { enabled: false } });
+        }
+        // 保存节点位置
+        this.saveNodePositions(nodeIds);
+    }
+
+    /**
+     * 节点悬停处理
+     */
+    onNodeHover(nodeId) {
+        const node = this.nodes.get(nodeId);
+        if (node && node.portData) {
+            // 显示详细信息提示
+            this.showTooltip(node.portData);
+        }
+    }
+
+    /**
+     * 节点离开悬停处理
+     */
+    onNodeBlur(nodeId) {
+        // 隐藏提示
+        this.hideTooltip();
+    }
+
+    /**
+     * 显示端口详情
+     */
+    showPortDetails(portData) {
+        // 实现端口详情显示逻辑
+        console.log('显示端口详情:', portData);
+    }
+
+    /**
+     * 打开端口配置
+     */
+    openPortConfig(portData) {
+        // 实现端口配置界面
+        console.log('打开端口配置:', portData);
+    }
+
+    /**
+     * 保存节点位置
+     */
+    saveNodePositions(nodeIds) {
+        // 实现节点位置保存逻辑（本地存储，按设备与布局区分）
+        try {
+            if (!this.network || !this.nodes || !Array.isArray(nodeIds) || nodeIds.length === 0) return;
+            if (!this.currentDeviceId || !this.currentLayout) {
+                console.warn('保存节点位置时缺少当前设备或布局信息');
+            }
+            const key = this.getPositionStorageKey();
+            const existing = this.getSavedPositions();
+            const posMap = this.network.getPositions(nodeIds);
+            // 合并到 existing
+            for (const nid of Object.keys(posMap)) {
+                const p = posMap[nid];
+                if (p && typeof p.x === 'number' && typeof p.y === 'number') {
+                    existing[nid] = { x: p.x, y: p.y };
+                }
+            }
+            this.setSavedPositions(existing);
+            console.log('已保存节点位置到本地存储:', key

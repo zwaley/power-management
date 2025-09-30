@@ -252,3 +252,37 @@
         margin-right: 15px;
     }
 }
+
+
+/* --- Node tooltip styles for topology graph --- */
+.node-tooltip {
+  position: absolute;
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  line-height: 1.4;
+  z-index: 9999; /* Ensure tooltip is above vis-canvas */
+  pointer-events: none; /* Do not block interactions */
+  transform: translate(-50%, -120%);
+  white-space: nowrap;
+  max-width: 260px;
+  word-wrap: break-word;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.node-tooltip .title {
+  font-weight: 600;
+}
+
+.node-tooltip .kv {
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
+/* Keep tooltip positioning consistent in fullscreen */
+.fullscreen-topology .node-tooltip {
+  transform: translate(-50%, -120%);
+}

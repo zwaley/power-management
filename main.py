@@ -513,25 +513,12 @@ async def health_check(db: Session = Depends(get_db)):
 @app.get("/api/port-topology/{device_id}")
 async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Session = Depends(get_db)):
     """
-    获取设备的端口拓扑图数据 - 按照设计规范实现
+    获取设备的端口拓扑图数据 - 严格按照设计规范实现
     """
     try:
-        # 入参调试日志
-        topology_error_tracker.log_error(
-            category=ErrorCategory.DATA_LOADING,
-            level=ErrorLevel.DEBUG,
-            message="端口拓扑请求入参",
-            context={"device_id": device_id, "mode": mode}
-        )
         # 获取设备信息
         device = db.query(Device).filter(Device.id == device_id).first()
         if not device:
-            topology_error_tracker.log_error(
-                category=ErrorCategory.DATA_LOADING,
-                level=ErrorLevel.WARNING,
-                message="请求的设备不存在",
-                context={"device_id": device_id}
-            )
             raise HTTPException(status_code=404, detail="设备不存在")
         
         # 获取设备的所有连接
@@ -539,231 +526,289 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
             or_(Connection.source_device_id == device_id, 
                 Connection.target_device_id == device_id)
         ).all()
-        # 连接规模调试日志
-        topology_error_tracker.log_error(
-            category=ErrorCategory.PERFORMANCE,
-            level=ErrorLevel.DEBUG,
-            message="连接查询完成",
-            context={"device_id": device_id, "connections_count": len(connections)}
-        )
-        if len(connections) == 0:
-            topology_error_tracker.log_error(
-                category=ErrorCategory.DATA_LOADING,
-                level=ErrorLevel.WARNING,
-                message="未查询到任何连接记录",
-                context={"device_id": device_id}
-            )
         
         nodes = []
         edges = []
         
-        # 1. 添加中心设备节点
+        # 1. 创建中心设备节点 - 按设计规范显示"机房名称 + 设备名称"
+        device_label = device.name
+        if (device.station and 
+            device.station != "未知站点" and 
+            device.station.lower() != 'nan' and
+            device.station.strip() != '' and
+            device.station.lower() != 'none'):
+            device_label = f"{device.station}\n{device.name}"
+            
         center_device_node = {
             "id": f"device_{device_id}",
-            "label": device.name,  # 只显示设备名称
+            "label": device_label,
             "type": "center_device",
+            "nodeType": "device",  # 添加nodeType字段供前端识别
             "x": 0,
             "y": 0,
             "size": 30,
-            "color": "#3b82f6",
+            "color": {"background": "#3b82f6", "border": "#1e40af"},
             "shape": "box",
             "font": {"size": 14, "color": "#ffffff"}
         }
         nodes.append(center_device_node)
         
-        # 2. 处理端口和连接
-        port_positions = {"left": [], "right": []}
-        port_count = 0
-        
+        # 2. 收集所有端口连接信息
+        all_port_connections = []
         for conn in connections:
             if conn.source_device_id == device_id:
-                # 本设备是源设备
-                port_name = conn.source_fuse_number or conn.source_breaker_number or f"端口{conn.id}"
-                remote_device = db.query(Device).filter(Device.id == conn.target_device_id).first()
-                # 改进目标端口名称生成逻辑，避免显示"未知端口"
-                if conn.target_fuse_number:
-                    remote_port = conn.target_fuse_number
-                elif conn.target_breaker_number:
-                    remote_port = conn.target_breaker_number
-                else:
-                    # 当目标端口信息缺失时，使用更有意义的标识
-                    remote_port = f"入线{conn.id}"
-                # 远端设备缺失告警
-                if not remote_device:
-                    topology_error_tracker.log_error(
-                        category=ErrorCategory.DATA_LOADING,
-                        level=ErrorLevel.WARNING,
-                        message="源端连接缺少远端设备",
-                        context={"connection_id": conn.id, "target_device_id": conn.target_device_id}
-                    )
-                
-                # 创建端口节点
-                port_node_id = f"port_{device_id}_{port_name}"
-                side = "left" if port_count % 2 == 0 else "right"
-                y_offset = (len(port_positions[side]) + 1) * 80
-                x_offset = -200 if side == "left" else 200
-                
-                port_node = {
-                    "id": port_node_id,
-                    "label": port_name,
-                    "type": "port",
-                    "x": x_offset,
-                    "y": y_offset,
-                    "size": 15,
-                    "color": "#10b981",
-                    "shape": "circle"
-                }
-                nodes.append(port_node)
-                port_positions[side].append(port_node_id)
-                
-                # 连接中心设备到端口
-                center_to_port_edge = {
-                    "id": f"center_to_{port_node_id}",
-                    "from": f"device_{device_id}",
-                    "to": port_node_id,
-                    "width": 2,
-                    "color": "#6b7280"
-                }
-                edges.append(center_to_port_edge)
-                
-                # 如果有连接的远程设备，创建远程设备节点
-                if remote_device:
-                    remote_node_id = f"remote_{remote_device.id}_{remote_port}"
-                    remote_x = x_offset + (-150 if side == "left" else 150)
-                    
-                    # 检查节点是否已存在，避免重复创建
-                    if not any(node["id"] == remote_node_id for node in nodes):
-                        remote_node = {
-                            "id": remote_node_id,
-                            "label": f"{remote_device.name}\n{remote_port}",
-                            "type": "remote_device",
-                            "x": remote_x,
-                            "y": y_offset,
-                            "size": 20,
-                            "color": "#f59e0b",
-                            "shape": "box"
-                        }
-                        nodes.append(remote_node)
-                    
-                    # 连接端口到远程设备
-                    port_to_remote_edge = {
-                        "id": f"{port_node_id}_to_{remote_node_id}",
-                        "from": port_node_id,
-                        "to": remote_node_id,
-                        "width": 2,
-                        "color": "#ef4444",
-                        "label": conn.cable_model or ""
-                    }
-                    edges.append(port_to_remote_edge)
-                
-                port_count += 1
-                
-            elif conn.target_device_id == device_id:
-                # 本设备是目标设备，处理逻辑类似
-                port_name = conn.target_fuse_number or conn.target_breaker_number or f"端口{conn.id}"
-                remote_device = db.query(Device).filter(Device.id == conn.source_device_id).first()
-                # 改进源端口名称生成逻辑，避免显示"未知端口"
-                if conn.source_fuse_number:
-                    remote_port = conn.source_fuse_number
-                elif conn.source_breaker_number:
-                    remote_port = conn.source_breaker_number
-                else:
-                    # 当源端口信息缺失时，使用更有意义的标识
-                    remote_port = f"出线{conn.id}"
-                # 远端设备缺失告警
-                if not remote_device:
-                    topology_error_tracker.log_error(
-                        category=ErrorCategory.DATA_LOADING,
-                        level=ErrorLevel.WARNING,
-                        message="目标端连接缺少远端设备",
-                        context={"connection_id": conn.id, "source_device_id": conn.source_device_id}
-                    )
-                
-                # 创建端口节点
-                port_node_id = f"port_{device_id}_{port_name}"
-                side = "left" if port_count % 2 == 0 else "right"
-                y_offset = (len(port_positions[side]) + 1) * 80
-                x_offset = -200 if side == "left" else 200
-                
-                port_node = {
-                    "id": port_node_id,
-                    "label": port_name,
-                    "type": "port",
-                    "x": x_offset,
-                    "y": y_offset,
-                    "size": 15,
-                    "color": "#10b981",
-                    "shape": "circle"
-                }
-                nodes.append(port_node)
-                port_positions[side].append(port_node_id)
-                
-                # 连接中心设备到端口
-                center_to_port_edge = {
-                    "id": f"center_to_{port_node_id}",
-                    "from": f"device_{device_id}",
-                    "to": port_node_id,
-                    "width": 2,
-                    "color": "#6b7280"
-                }
-                edges.append(center_to_port_edge)
-                
-                # 如果有连接的远程设备，创建远程设备节点
-                if remote_device:
-                    remote_node_id = f"remote_{remote_device.id}_{remote_port}"
-                    remote_x = x_offset + (-150 if side == "left" else 150)
-                    
-                    # 检查节点是否已存在，避免重复创建
-                    if not any(node["id"] == remote_node_id for node in nodes):
-                        remote_node = {
-                            "id": remote_node_id,
-                            "label": f"{remote_device.name}\n{remote_port}",
-                            "type": "remote_device",
-                            "x": remote_x,
-                            "y": y_offset,
-                            "size": 20,
-                            "color": "#f59e0b",
-                            "shape": "box"
-                        }
-                        nodes.append(remote_node)
-                    
-                    # 连接端口到远程设备
-                    port_to_remote_edge = {
-                        "id": f"{port_node_id}_to_{remote_node_id}",
-                        "from": port_node_id,
-                        "to": remote_node_id,
-                        "width": 2,
-                        "color": "#ef4444",
-                        "label": conn.cable_model or ""
-                    }
-                    edges.append(port_to_remote_edge)
-                
-                port_count += 1
+                # 本设备是源设备 - 使用原始port_name
+                local_port = conn.source_port or f"端口{conn.id}"
+                remote_device_id = conn.target_device_id
+                remote_port = conn.target_port or f"入线{conn.id}"
+                connection_direction = "outgoing"
+            else:
+                # 本设备是目标设备 - 使用原始port_name
+                local_port = conn.target_port or f"端口{conn.id}"
+                remote_device_id = conn.source_device_id
+                remote_port = conn.source_port or f"出线{conn.id}"
+                connection_direction = "incoming"
+            
+            all_port_connections.append({
+                'conn': conn,
+                'local_port': local_port,
+                'remote_device_id': remote_device_id,
+                'remote_port': remote_port,
+                'direction': connection_direction
+            })
         
-        # 记录成功日志
-        topology_error_tracker.log_error(
-            category=ErrorCategory.API_SUCCESS,
-            level=ErrorLevel.INFO,
-            message=f"端口拓扑图数据生成成功",
-            context={
-                "device_id": device_id,
-                "device_name": device.name,
-                "nodes_count": len(nodes),
-                "edges_count": len(edges),
-                "mode": mode
+        # 3. 按设计规范实现左右分区 - 平均分配端口数量
+        total_ports = len(all_port_connections)
+        left_port_count = (total_ports + 1) // 2  # 奇数时左侧多一个
+        
+        left_ports = all_port_connections[:left_port_count]
+        right_ports = all_port_connections[left_port_count:]
+        
+        # 4. 处理左侧端口
+        for i, port_info in enumerate(left_ports):
+            conn = port_info['conn']
+            local_port = port_info['local_port']
+            remote_device_id = port_info['remote_device_id']
+            remote_port = port_info['remote_port']
+            direction = port_info['direction']
+            
+            # 获取对端设备信息
+            remote_device = db.query(Device).filter(Device.id == remote_device_id).first()
+            
+            # 左侧端口位置计算 - 自上而下排列，整体居中
+            port_x = -280
+            if left_port_count > 1:
+                total_height = (left_port_count - 1) * 100
+                start_y = -total_height / 2
+                port_y = start_y + i * 100
+            else:
+                port_y = 0
+            
+            # 创建端口节点
+            port_node_id = f"port_{device_id}_{local_port}_{conn.id}"
+            port_node = {
+                "id": port_node_id,
+                "label": local_port,  # 严格使用原始port_name
+                "type": "port",
+                "nodeType": "port",  # 添加nodeType字段供前端识别
+                "x": port_x,
+                "y": port_y,
+                "size": 15,
+                "color": {"background": "#10b981", "border": "#059669"},
+                "shape": "circle",
+                "font": {"size": 12}
             }
-        )
+            nodes.append(port_node)
+            
+            # 连接中心设备到端口
+            center_to_port_edge = {
+                "id": f"center_to_{port_node_id}",
+                "from": f"device_{device_id}",
+                "to": port_node_id,
+                "width": 2,
+                "color": {"color": "#6b7280"},
+                "arrows": {"to": {"enabled": False}}
+            }
+            edges.append(center_to_port_edge)
+            
+            # 如果有对端设备，创建对端设备节点
+            if remote_device:
+                remote_node_id = f"remote_{remote_device_id}_{remote_port}_{conn.id}"
+                remote_x = port_x - 200
+                
+                # 对端设备标签格式：设备名称 + 端口名称
+                remote_label = f"{remote_device.name}\n{remote_port}"
+                
+                remote_node = {
+                    "id": remote_node_id,
+                    "label": remote_label,
+                    "type": "remote_device",
+                    "nodeType": "remote_device",  # 添加nodeType字段供前端识别
+                    "x": remote_x,
+                    "y": port_y,
+                    "size": 20,
+                    "color": {"background": "#f59e0b", "border": "#d97706"},
+                    "shape": "box",
+                    "font": {"size": 10}
+                }
+                nodes.append(remote_node)
+                
+                # 根据连接类型设置颜色 - 按设计规范
+                connection_type = conn.connection_type or ""
+                if "交流" in connection_type:
+                    edge_color = "#f59e0b"  # 黄色
+                elif "直流" in connection_type:
+                    edge_color = "#ef4444"  # 红色
+                else:
+                    edge_color = "#6b7280"  # 灰色
+                
+                # 根据上下游字段控制箭头方向 - 按设计规范
+                upstream_downstream = conn.upstream_downstream or ""
+                if direction == "outgoing":
+                    # 本设备是源设备
+                    if upstream_downstream == "上游":
+                        # 本端是上游，箭头从本端指向对端
+                        arrow_from = port_node_id
+                        arrow_to = remote_node_id
+                    else:
+                        # 本端是下游，箭头从对端指向本端
+                        arrow_from = remote_node_id
+                        arrow_to = port_node_id
+                else:
+                    # 本设备是目标设备
+                    if upstream_downstream == "下游":
+                        # 本端是下游，箭头从对端指向本端
+                        arrow_from = remote_node_id
+                        arrow_to = port_node_id
+                    else:
+                        # 本端是上游，箭头从本端指向对端
+                        arrow_from = port_node_id
+                        arrow_to = remote_node_id
+                
+                # 创建连接边
+                port_to_remote_edge = {
+                    "id": f"{port_node_id}_to_{remote_node_id}",
+                    "from": arrow_from,
+                    "to": arrow_to,
+                    "width": 3,
+                    "color": {"color": edge_color},
+                    "arrows": {"to": {"enabled": True}},
+                    "label": conn.cable_model or conn.connection_type or "",
+                    "font": {"size": 10}
+                }
+                edges.append(port_to_remote_edge)
+        
+        # 5. 处理右侧端口（逻辑类似左侧）
+        for i, port_info in enumerate(right_ports):
+            conn = port_info['conn']
+            local_port = port_info['local_port']
+            remote_device_id = port_info['remote_device_id']
+            remote_port = port_info['remote_port']
+            direction = port_info['direction']
+            
+            # 获取对端设备信息
+            remote_device = db.query(Device).filter(Device.id == remote_device_id).first()
+            
+            # 右侧端口位置计算
+            port_x = 280
+            if len(right_ports) > 1:
+                total_height = (len(right_ports) - 1) * 100
+                start_y = -total_height / 2
+                port_y = start_y + i * 100
+            else:
+                port_y = 0
+            
+            # 创建端口节点
+            port_node_id = f"port_{device_id}_{local_port}_{conn.id}"
+            port_node = {
+                "id": port_node_id,
+                "label": local_port,
+                "type": "port",
+                "nodeType": "port",  # 添加nodeType字段供前端识别
+                "x": port_x,
+                "y": port_y,
+                "size": 15,
+                "color": {"background": "#10b981", "border": "#059669"},
+                "shape": "circle",
+                "font": {"size": 12}
+            }
+            nodes.append(port_node)
+            
+            # 连接中心设备到端口
+            center_to_port_edge = {
+                "id": f"center_to_{port_node_id}",
+                "from": f"device_{device_id}",
+                "to": port_node_id,
+                "width": 2,
+                "color": {"color": "#6b7280"},
+                "arrows": {"to": {"enabled": False}}
+            }
+            edges.append(center_to_port_edge)
+            
+            # 如果有对端设备，创建对端设备节点
+            if remote_device:
+                remote_node_id = f"remote_{remote_device_id}_{remote_port}_{conn.id}"
+                remote_x = port_x + 200
+                
+                remote_label = f"{remote_device.name}\n{remote_port}"
+                
+                remote_node = {
+                    "id": remote_node_id,
+                    "label": remote_label,
+                    "type": "remote_device",
+                    "nodeType": "remote_device",  # 添加nodeType字段供前端识别
+                    "x": remote_x,
+                    "y": port_y,
+                    "size": 20,
+                    "color": {"background": "#f59e0b", "border": "#d97706"},
+                    "shape": "box",
+                    "font": {"size": 10}
+                }
+                nodes.append(remote_node)
+                
+                # 连接类型颜色
+                connection_type = conn.connection_type or ""
+                if "交流" in connection_type:
+                    edge_color = "#f59e0b"  # 黄色
+                elif "直流" in connection_type:
+                    edge_color = "#ef4444"  # 红色
+                else:
+                    edge_color = "#6b7280"  # 灰色
+                
+                # 箭头方向控制
+                upstream_downstream = conn.upstream_downstream or ""
+                if direction == "outgoing":
+                    if upstream_downstream == "上游":
+                        arrow_from = port_node_id
+                        arrow_to = remote_node_id
+                    else:
+                        arrow_from = remote_node_id
+                        arrow_to = port_node_id
+                else:
+                    if upstream_downstream == "下游":
+                        arrow_from = remote_node_id
+                        arrow_to = port_node_id
+                    else:
+                        arrow_from = port_node_id
+                        arrow_to = remote_node_id
+                
+                port_to_remote_edge = {
+                    "id": f"{port_node_id}_to_{remote_node_id}",
+                    "from": arrow_from,
+                    "to": arrow_to,
+                    "width": 3,
+                    "color": {"color": edge_color},
+                    "arrows": {"to": {"enabled": True}},
+                    "label": conn.cable_model or conn.connection_type or "",
+                    "font": {"size": 10}
+                }
+                edges.append(port_to_remote_edge)
         
         return {"nodes": nodes, "edges": edges}
         
     except Exception as e:
-        topology_error_tracker.log_error(
-            category=ErrorCategory.API_ERROR,
-            level=ErrorLevel.ERROR,
-            message=f"端口拓扑图API调用失败: {str(e)}",
-            context={"device_id": device_id, "traceback": traceback.format_exc()},
-            exception=e
-        )
+        print(f"端口拓扑图API调用失败: {str(e)}")
+        traceback.print_exc()
         return {"nodes": [], "edges": []}
 
 # 端口拓扑图数据生成函数

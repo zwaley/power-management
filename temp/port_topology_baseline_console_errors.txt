@@ -1,0 +1,4 @@
+Baseline console errors capture:
+- No console logs matching the criteria at the time of capture.
+
+Note: Earlier sessions reported RangeError: Maximum call stack size exceeded from vis-network minified functions (_placeInTree/_placeInRegion). This file records the current snapshot only.
