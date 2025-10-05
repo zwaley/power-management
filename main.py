@@ -557,16 +557,26 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
         all_port_connections = []
         for conn in connections:
             if conn.source_device_id == device_id:
-                # 本设备是源设备 - 使用原始port_name
-                local_port = conn.source_port or f"端口{conn.id}"
+                # 本设备是源设备：优先使用熔丝/空开编号，其次使用原始端口字段
+                local_port = (
+                    conn.source_fuse_number or conn.source_breaker_number or conn.source_port or f"端口{conn.id}"
+                )
                 remote_device_id = conn.target_device_id
-                remote_port = conn.target_port or f"入线{conn.id}"
+                # 对端端口只使用真实数据，不生成占位名称
+                remote_port = (
+                    conn.target_fuse_number or conn.target_breaker_number or conn.target_port
+                )
                 connection_direction = "outgoing"
             else:
-                # 本设备是目标设备 - 使用原始port_name
-                local_port = conn.target_port or f"端口{conn.id}"
+                # 本设备是目标设备：优先使用熔丝/空开编号，其次使用原始端口字段
+                local_port = (
+                    conn.target_fuse_number or conn.target_breaker_number or conn.target_port or f"端口{conn.id}"
+                )
                 remote_device_id = conn.source_device_id
-                remote_port = conn.source_port or f"出线{conn.id}"
+                # 对端端口只使用真实数据，不生成占位名称
+                remote_port = (
+                    conn.source_fuse_number or conn.source_breaker_number or conn.source_port
+                )
                 connection_direction = "incoming"
             
             all_port_connections.append({
@@ -631,25 +641,36 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
             }
             edges.append(center_to_port_edge)
             
-            # 如果有对端设备，创建对端设备节点
-            if remote_device:
+            # 仅依赖真实对端端口生成连线；对端设备可缺失（不捏造设备名）
+            if remote_port:
                 remote_node_id = f"remote_{remote_device_id}_{remote_port}_{conn.id}"
                 remote_x = port_x - 200
-                
-                # 对端设备标签格式：设备名称 + 端口名称
-                remote_label = f"{remote_device.name}\n{remote_port}"
-                
+
+                # 设备名称回退处理，避免 "未知站点"/空值导致前端过滤
+                # 对端设备名称回退：设备不存在时仅显示端口编号
+                remote_name = None
+                if remote_device:
+                    nm = (remote_device.name or '').strip()
+                    if nm and nm.lower() not in ('nan','none','null') and nm != '未知站点':
+                        remote_name = nm
+
+                # 对端组合标签：设备名称 + 熔丝/空开/端口编号（按用户标准）
+                remote_label = f"{remote_name}\n{remote_port}" if remote_name else f"{remote_port}"
+
+                # 使用端口样式显示组合节点，确保前端按端口类型着色与布局
                 remote_node = {
                     "id": remote_node_id,
                     "label": remote_label,
-                    "type": "remote_device",
-                    "nodeType": "remote_device",  # 添加nodeType字段供前端识别
+                    "type": "port",
+                    "nodeType": "port",
                     "x": remote_x,
                     "y": port_y,
-                    "size": 20,
-                    "color": {"background": "#f59e0b", "border": "#d97706"},
-                    "shape": "box",
-                    "font": {"size": 10}
+                    "size": 16,
+                    "color": {"background": "#10b981", "border": "#065f46"},
+                    "shape": "dot",
+                    "font": {"size": 10},
+                    "device_name": remote_name,
+                    "port_name": remote_port
                 }
                 nodes.append(remote_node)
                 
@@ -685,7 +706,7 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
                         arrow_from = port_node_id
                         arrow_to = remote_node_id
                 
-                # 创建连接边
+                # 创建连接边（严格要求对端端口存在）
                 port_to_remote_edge = {
                     "id": f"{port_node_id}_to_{remote_node_id}",
                     "from": arrow_from,
@@ -745,24 +766,32 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
             }
             edges.append(center_to_port_edge)
             
-            # 如果有对端设备，创建对端设备节点
-            if remote_device:
+            # 仅依赖真实对端端口生成连线；对端设备可缺失（不捏造设备名）
+            if remote_port:
                 remote_node_id = f"remote_{remote_device_id}_{remote_port}_{conn.id}"
                 remote_x = port_x + 200
-                
-                remote_label = f"{remote_device.name}\n{remote_port}"
-                
+
+                remote_name = None
+                if remote_device:
+                    nm = (remote_device.name or '').strip()
+                    if nm and nm.lower() not in ('nan','none','null') and nm != '未知站点':
+                        remote_name = nm
+
+                remote_label = f"{remote_name}\n{remote_port}" if remote_name else f"{remote_port}"
+
                 remote_node = {
                     "id": remote_node_id,
                     "label": remote_label,
-                    "type": "remote_device",
-                    "nodeType": "remote_device",  # 添加nodeType字段供前端识别
+                    "type": "port",
+                    "nodeType": "port",
                     "x": remote_x,
                     "y": port_y,
-                    "size": 20,
-                    "color": {"background": "#f59e0b", "border": "#d97706"},
-                    "shape": "box",
-                    "font": {"size": 10}
+                    "size": 16,
+                    "color": {"background": "#10b981", "border": "#065f46"},
+                    "shape": "dot",
+                    "font": {"size": 10},
+                    "device_name": remote_name,
+                    "port_name": remote_port
                 }
                 nodes.append(remote_node)
                 
@@ -792,6 +821,7 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
                         arrow_from = port_node_id
                         arrow_to = remote_node_id
                 
+                # 创建连接边（严格要求对端端口存在）
                 port_to_remote_edge = {
                     "id": f"{port_node_id}_to_{remote_node_id}",
                     "from": arrow_from,
@@ -3245,7 +3275,7 @@ def _create_port_edges(connection: Connection, direction: str) -> list:
                 "from": from_port,
                 "to": to_port,
                 "arrows": arrow_direction,
-                "label": connection.connection_type or connection.cable_model or "",
+                "label": connection.cable_model or connection.connection_type or "",
                 "connection_type": connection.connection_type,
                 "cable_model": connection.cable_model,
                 "connection_id": connection.id,

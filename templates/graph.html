@@ -322,15 +322,15 @@
                             const roomPart = cleanDeviceName.substring(0, roomIndex + 2); // 包含"机房"
                             const devicePart = cleanDeviceName.substring(roomIndex + 2);
                             
-                            // 第一行：站点 + 机房部分
+                            // 第一行：站点 + 机房部分；第二行：设备部分
                             const firstLine = `${station}${roomPart}`;
-                            // 第二行：剩余的设备部分
                             const secondLine = devicePart;
                             
-                            return `<b>${firstLine}</b><br/>${secondLine}`;
+                            // 使用换行符而非HTML换行，便于自由拖拽与样式统一
+                            return `${firstLine}\n${secondLine}`;
                         } else {
-                            // 如果没有找到"机房"，使用原来的格式
-                            return `<b>${station}</b><br/>${cleanDeviceName}`;
+                            // 如果没有找到"机房"，使用两行：站点\n设备名
+                            return `${station}\n${cleanDeviceName}`;
                         }
                     }
                     
@@ -342,9 +342,8 @@
                         color: node.color || '#97C2FC',
                         shape: 'box',  // 强制使用方形
                         font: { 
-                            size: 11, 
-                            color: '#000000',
-                            multi: 'html'  // 支持HTML格式
+                            size: 12, 
+                            color: '#000000'
                         },
                         // 保存原始数据用于提示框
                         deviceName: node.deviceName,
@@ -360,21 +359,24 @@
                 }));
                 
                 // 处理边数据 - 直接赋值给全局变量
-                edges = new vis.DataSet(data.edges.map(edge => ({
-                    id: edge.id,
-                    from: edge.from,
-                    to: edge.to,
-                    label: edge.label || '',
-                    color: edge.color || '#848484',
-                    width: edge.width || 2,
-                    arrows: edge.arrows || 'to',
-                    // 保存原始数据用于提示框
-                    connection_type: edge.connection_type,
-                    cable_model: edge.cable_model,
-                    cable_type: edge.cable_type,
-                    remark: edge.remark,
-                    connection_id: edge.connection_id
-                })));
+                edges = new vis.DataSet(data.edges.map(edge => {
+                    const fallbackId = `${edge.from || ''}->${edge.to || ''}:${edge.connection_id || edge.label || edge.cable_model || ''}`;
+                    return {
+                        id: edge.id || fallbackId,
+                        from: edge.from,
+                        to: edge.to,
+                        label: edge.label || '',
+                        color: edge.color || '#848484',
+                        width: edge.width || 2,
+                        arrows: edge.arrows || 'to',
+                        // 保存原始数据用于提示框
+                        connection_type: edge.connection_type,
+                        cable_model: edge.cable_model,
+                        cable_type: edge.cable_type,
+                        remark: edge.remark,
+                        connection_id: edge.connection_id
+                    };
+                }));
                 
                 // 配置vis.js选项
                 const options = {
@@ -383,9 +385,12 @@
                             enabled: true,
                             direction: 'UD',
                             sortMethod: 'directed',
-                            levelSeparation: 150,
-                            nodeSpacing: 200,
-                            treeSpacing: 200
+                            levelSeparation: 200,
+                            nodeSpacing: 250,
+                            treeSpacing: 250,
+                            blockShifting: true,
+                            edgeMinimization: true,
+                            parentCentralization: true
                         }
                     },
                     physics: {
@@ -399,24 +404,24 @@
                         borderWidth: 2,
                         shadow: true,
                         font: {
-                            size: 11,
-                            color: '#000000',
-                            multi: 'html'  // 支持HTML格式，用于多行显示
+                            size: 12,
+                            color: '#000000'
                         },
-                        margin: 10,
+                        margin: 12,
                         widthConstraint: {
-                            minimum: 120,
-                            maximum: 180
+                            minimum: 180,
+                            maximum: 220
                         },
                         heightConstraint: {
-                            minimum: 60
+                            minimum: 70
                         }
                     },
                     edges: {
                         shadow: true,
                         smooth: {
                             enabled: true,
-                            type: 'continuous'
+                            type: 'cubicBezier',
+                            roundness: 0.4
                         }
                     },
                     interaction: {
@@ -1082,7 +1087,26 @@
             
             // 事件监听器
             deviceSelect.addEventListener('change', generateTopology);
-            applyFiltersBtn.addEventListener('click', generateTopology);
+            // 修复：根据层级选择决定调用设备/端口拓扑生成，避免两套渲染同时触发
+            applyFiltersBtn.addEventListener('click', function() {
+                const levelValue = parseInt(levelSelect.value);
+                if (levelValue >= 4) {
+                    // 端口层级：调用端口拓扑加载
+                    try {
+                        if (window.portTopologyManager) {
+                            loadPortTopology(true);
+                        } else {
+                            // 未初始化管理器时，仅切换端口拓扑视图提示
+                            showPortTopology();
+                        }
+                    } catch (err) {
+                        console.error('应用筛选加载端口拓扑失败:', err);
+                    }
+                } else {
+                    // 设备层级：生成设备拓扑
+                    generateTopology();
+                }
+            });
             resetFiltersBtn.addEventListener('click', resetFilters);
             fullscreenBtn.addEventListener('click', toggleFullscreen);
             

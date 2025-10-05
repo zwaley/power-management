@@ -54,11 +54,11 @@ class PortTopologyManager {
                 }
             },
             edges: {
-                width: 2,
+                width: 3,
                 color: {
-                    color: '#2196F3',
-                    highlight: '#FF5722',
-                    hover: '#FF9800'
+                    color: '#FF0000',
+                    highlight: '#FF0000',
+                    hover: '#FF0000'
                 },
                 smooth: {
                     enabled: true,
@@ -67,7 +67,8 @@ class PortTopologyManager {
                 },
                 arrows: {
                     to: {
-                        enabled: false
+                        enabled: true
+                        
                     }
                 },
                 font: {
@@ -219,23 +220,40 @@ class PortTopologyManager {
             // 处理后端API返回的节点数据格式 {nodes: [], edges: []}
             if (data.nodes && Array.isArray(data.nodes)) {
                 // 直接使用后端返回的节点数据，这些数据已经包含了vis.js需要的格式
-                const processedNodes = data.nodes.map(node => ({
-                    id: node.id,
-                    // 统一清洗名称：去下划线，在“机房”后换行，端口采用两行可读格式
-                    label: this.formatLabel(node),
-                    title: node.title || this.generateNodeTitle(node),
-                    color: node.color || this.getDefaultNodeColor(node.nodeType),
-                    shape: node.shape || 'box',
-                    size: node.size || 30,
-                    font: node.font || { size: 12, color: '#000000' },
-                    x: node.x,
-                    y: node.y,
-                    // 保存原始数据
-                    nodeData: {
-                        ...node,
-                        nodeType: node.nodeType || node.type  // 确保nodeType字段存在
-                    }
-                }));
+                const processedNodes = data.nodes.map(node => {
+                    // 统一类型字段：兼容后端的 node_type / nodeType / type，并做语义归一
+                    const rawType = node.nodeType || node.type || node.node_type;
+                    const normalizedType = (() => {
+                        if (!rawType) return 'device';
+                        const t = String(rawType).toLowerCase();
+                        if (t === 'device_icon' || t === 'device') return 'device';
+                        // 后端使用 selected_device_port / connected_device_port
+                        if (t.includes('port')) return 'port';
+                        // 远端设备类型
+                        if (t === 'remote_device') return 'remote_device';
+                        return rawType;
+                    })();
+                    const isRemoteCombined = node.id && String(node.id).startsWith('remote_combined_');
+                    return {
+                        id: node.id,
+                        // 统一清洗名称：去下划线，在“机房”后换行，端口采用两行可读格式
+                        label: this.formatLabel(node),
+                        title: node.title || this.generateNodeTitle({ ...node, nodeType: normalizedType }),
+                        color: node.color || this.getDefaultNodeColor(normalizedType),
+                        shape: node.shape || 'box',
+                        size: node.size || 30,
+                        // 统一提升可读性：远端节点标签更醒目且更小
+                        font: node.font || (isRemoteCombined ? { size: 10, color: '#fef08a' } : { size: 12, color: '#ffffff' }),
+                        x: node.x,
+                        y: node.y,
+                        // 保存原始数据
+                        nodeData: {
+                            ...node,
+                            rawNodeType: rawType,
+                            nodeType: normalizedType  // 确保 nodeType 字段存在且语义统一
+                        }
+                    };
+                });
                 
                 // 去重并使用 update 防止重复ID导致异常
                 const seenNodeIds = new Set();
@@ -251,19 +269,40 @@ class PortTopologyManager {
             
             // 处理后端API返回的边数据格式
             if (data.edges && Array.isArray(data.edges)) {
-                // 直接使用后端返回的边数据，这些数据已经包含了vis.js需要的格式
-                const processedEdges = data.edges.map(edge => ({
-                    id: edge.id,
-                    from: edge.from,
-                    to: edge.to,
-                    label: edge.label || '',
-                    title: edge.title || this.generateEdgeTitle(edge),
-                    color: edge.color || '#848484',
-                    width: edge.width || 2,
-                    arrows: edge.arrows || 'to',
-                    // 保存原始数据
-                    edgeData: edge
-                }));
+                // 仅渲染“端口↔端口”的真实连接边（存在 connection_id 且有电缆类型/型号）。
+                // 注意：必须保留设备↔端口、设备↔合成节点等结构性边，以便布局算法识别本端端口与对端节点。
+                const connectedEdges = data.edges.filter(edge => {
+                    const hasConnRow = edge.connection_id != null;
+                    if (!hasConnRow) return true; // 保留结构性边
+                    const cm = String(edge.cable_model || edge.cable_type || '').trim();
+                    return cm !== ''; // 只有连接表有电缆类型/型号才绘制端口到端口连线
+                });
+                // 使用后端返回的边数据，按交流/直流映射颜色
+                const processedEdges = connectedEdges.map(edge => {
+                    // 如果后端未提供id，按from/to/连接信息生成稳定ID，确保边能正确渲染
+                    const fallbackId = `${edge.from || ''}->${edge.to || ''}:${edge.connection_id || edge.label || edge.cable_model || ''}`;
+                    const eid = edge.id || fallbackId;
+                    const ct = String(edge.connection_type || edge.cable_type || '').trim();
+                    let baseColor = '#9ca3af';
+                    if (ct === '交流') baseColor = '#f59e0b';
+                    else if (ct === '直流') baseColor = '#ef4444';
+                    const colorValue = edge.color || { color: baseColor, highlight: baseColor, hover: baseColor };
+                    const widthValue = edge.connection_id ? Math.max(edge.width || 3, 3) : Math.max(edge.width || 1, 1);
+
+                    return {
+                        id: eid,
+                        from: edge.from,
+                        to: edge.to,
+                        label: edge.label || '',
+                        title: edge.title || this.generateEdgeTitle(edge),
+                        color: colorValue,
+                        width: widthValue,
+                        // 尊重后端提供的箭头方向；若无，则默认指向 to
+                        arrows: (edge.arrows != null ? edge.arrows : { to: { enabled: true } }),
+                        // 保存原始数据
+                        edgeData: edge
+                    };
+                });
                 
                 // 去重并使用 update 防止重复ID导致异常
                 const seenEdgeIds = new Set();
@@ -275,6 +314,16 @@ class PortTopologyManager {
                     }
                 }
                 this.edges.update(uniqueEdges);
+                // 调试与强制重绘，确保边立即可见
+                try {
+                    console.log('端口拓扑: 边数量 =', uniqueEdges.length);
+                } catch (e) {}
+                setTimeout(() => {
+                    if (this.network) {
+                        try { this.network.redraw(); } catch (e) {}
+                        try { this.network.fit(); } catch (e) {}
+                    }
+                }, 50);
             }
             
             // 尝试恢复已保存的节点位置（若存在，且未被要求跳过）
@@ -324,12 +373,23 @@ class PortTopologyManager {
         return title;
     }
 
-    // 名称格式化：去掉下划线；若包含“机房”，在其后插入换行；端口节点采用两行格式（位置/设备-端口）
+    // 名称格式化：去掉下划线；若包含“机房”，在其后插入换行；
+    // 特殊处理 remote_combined 节点：仅显示“设备-端口”一行，避免重复
     formatLabel(node) {
         try {
             const sanitize = (v) => String(v || '').replace(/_/g, '');
             const raw = sanitize(node.label || '');
             const withBreak = raw.replace(/机房(?!\n)/, '机房\n');
+            const idStr = String(node.id || '');
+            const isRemoteCombined = idStr.startsWith('remote_combined_');
+
+            if (isRemoteCombined) {
+                const dev = sanitize(node.device_name || node.deviceName || '');
+                const port = sanitize(node.port_name || node.portName || '');
+                const combined = [dev, port].filter(Boolean).join('-');
+                // 若无法组合，则退回原始文本清洗后的结果
+                return combined || withBreak;
+            }
             if (node.nodeType === 'port') {
                 const location = sanitize(node.station || node.site || '');
                 const dev = sanitize(node.deviceName || node.device_name || '');
@@ -877,7 +937,7 @@ class PortTopologyManager {
         this.network.setOptions({
             layout: { improvedLayout: false, hierarchical: { enabled: false } },
             physics: { enabled: false },
-            edges: { smooth: { enabled: false } }
+            edges: { smooth: { enabled: false }, arrows: { to: { enabled: true } } }
         });
 
         const containerW = (this.container && this.container.clientWidth) || 1000;
@@ -902,9 +962,9 @@ class PortTopologyManager {
             if (e && e.from != null && e.to != null) addNeighbor(e.from, e.to);
         }
 
-        const isDevice = (n) => n && n.nodeData && (n.nodeData.nodeType === 'device' || n.nodeData.type === 'device');
-        const isPort = (n) => n && n.nodeData && (n.nodeData.nodeType === 'port' || n.nodeData.type === 'port');
-        const isRemoteDevice = (n) => n && n.nodeData && (n.nodeData.nodeType === 'remote_device' || n.nodeData.type === 'remote_device');
+        const isDevice = (n) => n && n.nodeData && (String(n.nodeData.nodeType).toLowerCase() === 'device' || String(n.nodeData.type).toLowerCase() === 'device');
+        const isPort = (n) => n && n.nodeData && (String(n.nodeData.nodeType).toLowerCase() === 'port' || String(n.nodeData.type).toLowerCase() === 'port');
+        const isRemoteDevice = (n) => n && n.nodeData && (String(n.nodeData.nodeType).toLowerCase() === 'remote_device' || String(n.nodeData.type).toLowerCase() === 'remote_device');
 
         // 选定中心设备：优先匹配当前 deviceId，其次首个 device
         let centerNode = nodesArr.find(n => isDevice(n) && (String(n.nodeData.id || n.nodeData.device_id || n.id) === String(this.currentDeviceId)));
@@ -924,14 +984,112 @@ class PortTopologyManager {
             const lpNeighbors = Array.from((neighbors.get(String(lp.id)) || new Set()).values());
             const remoteCandidates = lpNeighbors.map(id => byId.get(String(id))).filter(n => n && n.id !== centerNode.id);
             // 过滤非法对端（例如名称为 nan/null/未知站点 等），并允许端口或设备作为对端
-            const isInvalidName = (txt) => {
-                if (!txt) return true;
-                const t = String(txt).trim().toLowerCase();
-                return t === 'nan' || t === 'null' || t === 'none' || t === '' || t === '未知站点';
-            };
-            const isInvalidNode = (n) => isInvalidName(n?.label) || isInvalidName(n?.nodeData?.device_name) || isInvalidName(n?.nodeData?.name);
-            const remotes = remoteCandidates.filter(n => (isPort(n) || isRemoteDevice(n) || isDevice(n)) && !isInvalidNode(n));
+        // 放宽无效判断，避免误删“远端端口”节点
+        const isInvalidName = (txt) => {
+            // 允许缺失字段，通过节点类型与其他字段判定有效性
+            if (txt === null || txt === undefined) return false;
+            const t = String(txt).trim().toLowerCase();
+            return t === 'nan' || t === 'null' || t === 'none' || t === '' || t === '未知站点';
+        };
+        const isInvalidNode = (n) => {
+            const nd = n?.nodeData || {};
+            const typeStr = String(nd.nodeType || nd.type || '').toLowerCase();
+            // 端口节点始终有效（即使内部label被外部侧标签取代）
+            if (typeStr === 'port') return false;
+            const labelInvalid = isInvalidName(n?.label);
+            const nameInvalid = isInvalidName(nd.device_name || nd.name || nd.deviceName);
+            return labelInvalid && nameInvalid;
+        };
+        const remotes = remoteCandidates.filter(n => (isPort(n) || isRemoteDevice(n) || isDevice(n)) && !isInvalidNode(n));
             portPairRows.push({ localPort: lp, remotes });
+        }
+
+        // 禁用自动补线：严格按“连接表”是否有电缆类型来画边
+        const ENABLE_AUTO_FALLBACK_EDGES = false;
+        if (ENABLE_AUTO_FALLBACK_EDGES) {
+            try {
+                const isValidPortName = (name) => {
+                    const s = String(name || '').trim().toLowerCase();
+                    return s !== '' && !['nan','null','none','未知端口','未知站点'].includes(s);
+                };
+                const sanitize = (v) => String(v ?? '').trim();
+                const parseCombinedLabel = (node) => {
+                    // remote_combined_* 节点的 label 形如 “设备-端口”，尽量解析出二者
+                    const raw = sanitize(node?.label || '');
+                    const parts = raw.split('\n').pop().split('-');
+                    if (parts.length >= 2) {
+                        const device = sanitize(parts[0]);
+                        const port = sanitize(parts.slice(1).join('-'));
+                        return { device, port };
+                    }
+                    return { device: sanitize(node?.nodeData?.device_name || node?.nodeData?.deviceName || ''),
+                             port: sanitize(node?.nodeData?.port_name || node?.nodeData?.portName || '') };
+                };
+                const deviceOf = (n) => sanitize(n?.nodeData?.device_name || n?.nodeData?.deviceName || '');
+                const portOf = (n) => sanitize(n?.nodeData?.port_name || n?.nodeData?.portName || '');
+
+                const nodesMap = new Map(this.nodes.get().map(n => [String(n.id), n]));
+                const allPorts = this.nodes.get().filter(isPort);
+                const existingEdgeKey = new Set(this.edges.get().map(e => `${e.from}->${e.to}`));
+                const edgesArr2 = this.edges.get();
+                const autoEdges = [];
+
+                for (const row of portPairRows) {
+                    const lp = row.localPort;
+                    if (!lp) continue;
+
+                    // 1) 优先依据现有“本端端口与远端合成/设备”的边来解析对端端口信息
+                    const relatedEdges = edgesArr2.filter(e => e && (e.from === lp.id || e.to === lp.id));
+                    const candidatePairs = [];
+                    for (const e of relatedEdges) {
+                        const otherId = e.from === lp.id ? e.to : e.from;
+                        const otherNode = nodesMap.get(String(otherId));
+                        if (!otherNode) continue;
+                        const typeStr = String(otherNode?.nodeData?.nodeType || otherNode?.nodeData?.type || '').toLowerCase();
+                        if (typeStr === 'remote_device' || String(otherNode.id || '').startsWith('remote_combined_')) {
+                            const { device, port } = parseCombinedLabel(otherNode);
+                            candidatePairs.push({ device, port, srcEdge: e });
+                        }
+                    }
+
+                    // 2) 若还没有候选，则回退到 row.remotes 中的端口节点
+                    if (candidatePairs.length === 0) {
+                        for (const r of row.remotes) {
+                            if (!r) continue;
+                            const typeStr = String(r?.nodeData?.nodeType || r?.nodeData?.type || '').toLowerCase();
+                            if (typeStr === 'port' && isValidPortName(portOf(r))) {
+                                candidatePairs.push({ device: deviceOf(r), port: portOf(r), srcEdge: null });
+                            }
+                        }
+                    }
+
+                    // 3) 为每个候选在所有端口中找到唯一匹配的“远端端口”，并补线
+                    for (const cand of candidatePairs) {
+                        const tgt = allPorts.find(p => deviceOf(p) === cand.device && portOf(p) === cand.port);
+                        if (!tgt) continue;
+                        const key = `${lp.id}->${tgt.id}`;
+                        if (existingEdgeKey.has(key)) continue;
+
+                        const cableLabel = sanitize(cand.srcEdge?.edgeData?.cable_model || cand.srcEdge?.label || '');
+                        autoEdges.push({
+                            id: `auto_${key}`,
+                            from: lp.id,
+                            to: tgt.id,
+                            label: cableLabel,
+                            title: `自动补充连线\nA端: ${portOf(lp)}\nB端: ${portOf(tgt)}${cableLabel ? `\n线缆型号: ${cableLabel}` : ''}`,
+                            color: { color: '#FF0000', hover: '#FF0000', highlight: '#FF0000' },
+                            width: 4,
+                            arrows: { to: { enabled: true } }
+                        });
+                        existingEdgeKey.add(key);
+                    }
+                }
+
+                if (autoEdges.length > 0) {
+                    this.edges.update(autoEdges);
+                    console.warn(`已自动补充缺失连线 ${autoEdges.length} 条`);
+                }
+            } catch (e) { console.warn('补充回退连线失败:', e); }
         }
 
         // 布局参数
@@ -945,6 +1103,43 @@ class PortTopologyManager {
 
         // 准备坐标集合
         const updates = [];
+        // 侧边标签节点集合
+        const sideLabelNodes = [];
+        const toVerticalLabel = (txt) => {
+            const s = String(txt || '');
+            // 将文本按字符拆分并加入换行，以模拟竖排效果
+            return s.split('').join('\n');
+        };
+        const addSideLabel = (node, x, y, side, vertical = false) => {
+            if (!node) return;
+            const labelId = `label_${node.id}`;
+            // 统一侧边标签：优先“设备-端口”单行；无端口则仅设备名
+            const sanitize = (v) => String(v ?? '').replace(/_/g, '').trim();
+            const dev = sanitize(node?.nodeData?.device_name || node?.nodeData?.name || node?.nodeData?.deviceName || node?.label);
+            const port = sanitize(node?.nodeData?.port_name || node?.nodeData?.portName);
+            let baseText = [dev, port].filter(Boolean).join('-') || dev || '';
+            const text = vertical ? toVerticalLabel(baseText) : baseText;
+            const offsetX = side === 'left' ? -70 : side === 'right' ? 70 : 0;
+            const offsetY = side === 'top' ? -40 : side === 'bottom' ? 40 : 0;
+            sideLabelNodes.push({
+                id: labelId,
+                label: text,
+                shape: 'box',
+                size: 1,
+                x: x + offsetX,
+                y: y + offsetY,
+                // 在浅色背景下提高可读性：半透明白底 + 深色字体
+                color: { background: 'rgba(255,255,255,0.85)', border: 'rgba(0,0,0,0.1)' },
+                font: { size: 11, color: '#333333' },
+                physics: false,
+                fixed: { x: false, y: false }
+            });
+            // 仅对端口节点隐藏内置标签，避免重叠；设备保持原标签用于有效性判断
+            const typeStr = String(node?.nodeData?.nodeType || node?.nodeData?.type || '').toLowerCase();
+            if (typeStr === 'port') {
+                updates.push({ id: node.id, label: '' });
+            }
+        };
 
         if (layoutType === 'hierarchicalLR') {
             // 中心设备居中
@@ -954,8 +1149,10 @@ class PortTopologyManager {
                 const y = startYLeft + idx * rowGap;
                 if (row.localPort) updates.push({ id: row.localPort.id, x: centerX - colGap, y, fixed: { x: false, y: false } });
                 row.remotes.forEach((r, jdx) => {
-                    const x = centerX + colGap + jdx * 140;
+                    const x = centerX - colGap - (jdx + 1) * 140; // 对端与本端同侧，向更左延伸
                     updates.push({ id: r.id, x, y, fixed: { x: false, y: false } });
+                    // 左侧行：标签显示在节点左侧
+                    addSideLabel(r, x, y, 'left', false);
                 });
             });
             // 右半列：本端端口在右，对端在左（保持左右均衡）
@@ -963,8 +1160,10 @@ class PortTopologyManager {
                 const y = startYRight + idx * rowGap;
                 if (row.localPort) updates.push({ id: row.localPort.id, x: centerX + colGap, y, fixed: { x: false, y: false } });
                 row.remotes.forEach((r, jdx) => {
-                    const x = centerX - colGap - jdx * 140;
+                    const x = centerX + colGap + (jdx + 1) * 140; // 对端与本端同侧，向更右延伸
                     updates.push({ id: r.id, x, y, fixed: { x: false, y: false } });
+                    // 右侧行：标签显示在节点右侧
+                    addSideLabel(r, x, y, 'right', false);
                 });
             });
         } else if (layoutType === 'hierarchicalUD') {
@@ -976,8 +1175,10 @@ class PortTopologyManager {
                 const x = startXTop + idx * rowGap;
                 if (row.localPort) updates.push({ id: row.localPort.id, x, y: centerY - colGap, fixed: { x: false, y: false } });
                 row.remotes.forEach((r, jdx) => {
-                    const y = centerY + colGap + jdx * 120;
+                    const y = centerY - colGap - (jdx + 1) * 120; // 对端与本端同侧，向更上延伸
                     updates.push({ id: r.id, x, y, fixed: { x: false, y: false } });
+                    // 上半部：标签显示在节点上方，竖排
+                    addSideLabel(r, x, y, 'top', true);
                 });
             });
             // 下半部：本端端口在下，对端在上
@@ -986,8 +1187,10 @@ class PortTopologyManager {
                 const x = startXBottom + idx * rowGap;
                 if (row.localPort) updates.push({ id: row.localPort.id, x, y: centerY + colGap, fixed: { x: false, y: false } });
                 row.remotes.forEach((r, jdx) => {
-                    const y = centerY - colGap - jdx * 120;
+                    const y = centerY + colGap + (jdx + 1) * 120; // 对端与本端同侧，向更下延伸
                     updates.push({ id: r.id, x, y, fixed: { x: false, y: false } });
+                    // 下半部：标签显示在节点下方，竖排
+                    addSideLabel(r, x, y, 'bottom', true);
                 });
             });
         } else if (layoutType === 'force') {
@@ -1008,10 +1211,25 @@ class PortTopologyManager {
             }
         } catch (e) { console.warn('清空旧坐标失败:', e); }
 
+        // 应用坐标前，清理旧的标签节点
+        try {
+            const allExisting = this.nodes.get();
+            const labelIds = allExisting.filter(n => String(n.id).startsWith('label_')).map(n => n.id);
+            if (labelIds.length > 0) this.nodes.remove(labelIds);
+        } catch (e) { console.warn('清理旧标签节点失败:', e); }
+
         // 应用坐标
         this.nodes.update(updates);
         for (const u of updates) {
             try { this.network.moveNode(u.id, u.x, u.y); } catch (e) {}
+        }
+
+        // 添加并定位侧边标签节点
+        if (sideLabelNodes.length > 0) {
+            this.nodes.update(sideLabelNodes);
+            for (const l of sideLabelNodes) {
+                try { this.network.moveNode(l.id, l.x, l.y); } catch (e) {}
+            }
         }
 
         // 优先恢复本地保存位置（若存在且未被要求跳过），以遵循用户拖拽偏好
@@ -1386,9 +1604,9 @@ class PortTopologyManager_Backup3 {
                     to: edge.to,
                     label: edge.label || '',
                     title: edge.title || this.generateEdgeTitle(edge),
-                    color: edge.color || '#848484',
-                    width: edge.width || 2,
-                    arrows: edge.arrows || 'to',
+                    color: { color: '#FF0000', highlight: '#FF0000', hover: '#FF0000' },
+                    width: edge.width || 3,
+                    arrows: { to: { enabled: true } },
                     // 保存原始数据
                     edgeData: edge
                 }));
