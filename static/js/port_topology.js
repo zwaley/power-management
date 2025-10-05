@@ -272,10 +272,15 @@ class PortTopologyManager {
                 // 仅渲染“端口↔端口”的真实连接边（存在 connection_id 且有电缆类型/型号）。
                 // 注意：必须保留设备↔端口、设备↔合成节点等结构性边，以便布局算法识别本端端口与对端节点。
                 const connectedEdges = data.edges.filter(edge => {
-                    const hasConnRow = edge.connection_id != null;
-                    if (!hasConnRow) return true; // 保留结构性边
-                    const cm = String(edge.cable_model || edge.cable_type || '').trim();
-                    return cm !== ''; // 只有连接表有电缆类型/型号才绘制端口到端口连线
+                    // 仅当存在 connection_id 且 cable_type/cable_model 有效时，才视为真实连接
+                    const isRealConnection = edge.connection_id != null && 
+                                             String(edge.cable_model || edge.cable_type || '').trim() !== '';
+                    
+                    // 结构性边：没有 connection_id，通常用于布局（例如，设备到端口）
+                    const isStructuralEdge = edge.connection_id == null;
+
+                    // 保留真实连接或结构性边
+                    return isRealConnection || isStructuralEdge;
                 });
                 // 使用后端返回的边数据，按交流/直流映射颜色
                 const processedEdges = connectedEdges.map(edge => {
