@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 端口拓扑图功能模块
  * 实现端口级别的网络可视化
  */
@@ -272,9 +272,8 @@ class PortTopologyManager {
                 // 仅渲染“端口↔端口”的真实连接边（存在 connection_id 且有电缆类型/型号）。
                 // 注意：必须保留设备↔端口、设备↔合成节点等结构性边，以便布局算法识别本端端口与对端节点。
                 const connectedEdges = data.edges.filter(edge => {
-                    // 仅当存在 connection_id 且 cable_type/cable_model 有效时，才视为真实连接
-                    const isRealConnection = edge.connection_id != null && 
-                                             String(edge.cable_model || edge.cable_type || '').trim() !== '';
+                    // 仅当存在 connection_id 时，才视为真实连接（不再要求cable_type/cable_model）
+                    const isRealConnection = edge.connection_id != null;
                     
                     // 结构性边：没有 connection_id，通常用于布局（例如，设备到端口）
                     const isStructuralEdge = edge.connection_id == null;
@@ -1033,67 +1032,7 @@ class PortTopologyManager {
                 const deviceOf = (n) => sanitize(n?.nodeData?.device_name || n?.nodeData?.deviceName || '');
                 const portOf = (n) => sanitize(n?.nodeData?.port_name || n?.nodeData?.portName || '');
 
-                const nodesMap = new Map(this.nodes.get().map(n => [String(n.id), n]));
-                const allPorts = this.nodes.get().filter(isPort);
-                const existingEdgeKey = new Set(this.edges.get().map(e => `${e.from}->${e.to}`));
-                const edgesArr2 = this.edges.get();
-                const autoEdges = [];
-
-                for (const row of portPairRows) {
-                    const lp = row.localPort;
-                    if (!lp) continue;
-
-                    // 1) 优先依据现有“本端端口与远端合成/设备”的边来解析对端端口信息
-                    const relatedEdges = edgesArr2.filter(e => e && (e.from === lp.id || e.to === lp.id));
-                    const candidatePairs = [];
-                    for (const e of relatedEdges) {
-                        const otherId = e.from === lp.id ? e.to : e.from;
-                        const otherNode = nodesMap.get(String(otherId));
-                        if (!otherNode) continue;
-                        const typeStr = String(otherNode?.nodeData?.nodeType || otherNode?.nodeData?.type || '').toLowerCase();
-                        if (typeStr === 'remote_device' || String(otherNode.id || '').startsWith('remote_combined_')) {
-                            const { device, port } = parseCombinedLabel(otherNode);
-                            candidatePairs.push({ device, port, srcEdge: e });
-                        }
-                    }
-
-                    // 2) 若还没有候选，则回退到 row.remotes 中的端口节点
-                    if (candidatePairs.length === 0) {
-                        for (const r of row.remotes) {
-                            if (!r) continue;
-                            const typeStr = String(r?.nodeData?.nodeType || r?.nodeData?.type || '').toLowerCase();
-                            if (typeStr === 'port' && isValidPortName(portOf(r))) {
-                                candidatePairs.push({ device: deviceOf(r), port: portOf(r), srcEdge: null });
-                            }
-                        }
-                    }
-
-                    // 3) 为每个候选在所有端口中找到唯一匹配的“远端端口”，并补线
-                    for (const cand of candidatePairs) {
-                        const tgt = allPorts.find(p => deviceOf(p) === cand.device && portOf(p) === cand.port);
-                        if (!tgt) continue;
-                        const key = `${lp.id}->${tgt.id}`;
-                        if (existingEdgeKey.has(key)) continue;
-
-                        const cableLabel = sanitize(cand.srcEdge?.edgeData?.cable_model || cand.srcEdge?.label || '');
-                        autoEdges.push({
-                            id: `auto_${key}`,
-                            from: lp.id,
-                            to: tgt.id,
-                            label: cableLabel,
-                            title: `自动补充连线\nA端: ${portOf(lp)}\nB端: ${portOf(tgt)}${cableLabel ? `\n线缆型号: ${cableLabel}` : ''}`,
-                            color: { color: '#FF0000', hover: '#FF0000', highlight: '#FF0000' },
-                            width: 4,
-                            arrows: { to: { enabled: true } }
-                        });
-                        existingEdgeKey.add(key);
-                    }
-                }
-
-                if (autoEdges.length > 0) {
-                    this.edges.update(autoEdges);
-                    console.warn(`已自动补充缺失连线 ${autoEdges.length} 条`);
-                }
+                // 严格遵循数据源，不进行任何自动补线或端口匹配。
             } catch (e) { console.warn('补充回退连线失败:', e); }
         }
 

@@ -358,25 +358,41 @@
                     };
                 }));
                 
-                // 处理边数据 - 直接赋值给全局变量
-                edges = new vis.DataSet(data.edges.map(edge => {
-                    const fallbackId = `${edge.from || ''}->${edge.to || ''}:${edge.connection_id || edge.label || edge.cable_model || ''}`;
-                    return {
-                        id: edge.id || fallbackId,
-                        from: edge.from,
-                        to: edge.to,
-                        label: edge.label || '',
-                        color: edge.color || '#848484',
-                        width: edge.width || 2,
-                        arrows: edge.arrows || 'to',
-                        // 保存原始数据用于提示框
-                        connection_type: edge.connection_type,
-                        cable_model: edge.cable_model,
-                        cable_type: edge.cable_type,
-                        remark: edge.remark,
-                        connection_id: edge.connection_id
-                    };
-                }));
+                // 处理边数据：保留所有有效连接，包括空标签的边
+                const rawEdges = Array.isArray(data.edges) ? data.edges : [];
+                const filteredEdges = rawEdges
+                    .filter(edge => {
+                        // 必须有有效的起止节点
+                        if (!edge || !edge.from || !edge.to) return false;
+                        // 统一计算标签：优先使用现有label，其次 connection_type/cable_type/cable_model
+                        const resolvedLabel = (edge.label || edge.connection_type || edge.cable_type || edge.cable_model || '').toString();
+                        const labelTrimmed = resolvedLabel.trim().toLowerCase();
+                        // 只过滤掉明确的'nan'值，允许空标签
+                        const isValidLabel = labelTrimmed !== 'nan';
+                        return isValidLabel;
+                    })
+                    .map(edge => {
+                        const fallbackId = `${edge.from || ''}->${edge.to || ''}:${edge.connection_id || edge.label || edge.cable_model || ''}`;
+                        const resolvedLabel = (edge.label || edge.connection_type || edge.cable_type || edge.cable_model || '').toString();
+                        return {
+                            id: edge.id || fallbackId,
+                            from: edge.from,
+                            to: edge.to,
+                            label: resolvedLabel,
+                            color: edge.color || '#848484',
+                            width: edge.width || 2,
+                            // 默认使用箭头到to端，确保方向一致
+                            arrows: edge.arrows || 'to',
+                            // 保存原始数据用于提示框
+                            connection_type: edge.connection_type,
+                            cable_model: edge.cable_model,
+                            cable_type: edge.cable_type,
+                            remark: edge.remark,
+                            connection_id: edge.connection_id
+                        };
+                    });
+
+                edges = new vis.DataSet(filteredEdges);
                 
                 // 配置vis.js选项
                 const options = {

@@ -1,0 +1,1928 @@
+{
+  "nodes": [
+    {
+      "id": "device_13",
+      "label": "递铺\n新大楼一楼综合机房_1#直流系统直配屏E15",
+      "type": "center_device",
+      "nodeType": "device",
+      "x": 0,
+      "y": 0,
+      "size": 30,
+      "color": {
+        "background": "#3b82f6",
+        "border": "#1e40af"
+      },
+      "shape": "box",
+      "font": {
+        "size": 14,
+        "color": "#ffffff"
+      }
+    },
+    {
+      "id": "port_13_BF1（电池1）_1620",
+      "label": "BF1（电池1）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": -650.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_31_入线1620_1620",
+      "label": "新大楼三楼电力室_1#直流系统蓄电池01\n入线1620",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": -650.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼三楼电力室_1#直流系统蓄电池01",
+      "port_name": "入线1620"
+    },
+    {
+      "id": "port_13_BF2（电池2）_1621",
+      "label": "BF2（电池2）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": -550.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_32_入线1621_1621",
+      "label": "新大楼三楼电力室_1#直流系统蓄电池02\n入线1621",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": -550.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼三楼电力室_1#直流系统蓄电池02",
+      "port_name": "入线1621"
+    },
+    {
+      "id": "port_13_F1（出线1）_1622",
+      "label": "F1（出线1）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": -450.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_76_2L_1622",
+      "label": "新大楼一楼综合机房_1#直流系统列头柜A18\n2L",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": -450.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼一楼综合机房_1#直流系统列头柜A18",
+      "port_name": "2L"
+    },
+    {
+      "id": "port_13_F2（出线2）_1623",
+      "label": "F2（出线2）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": -350.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_76_1L_1623",
+      "label": "新大楼一楼综合机房_1#直流系统列头柜A18\n1L",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": -350.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼一楼综合机房_1#直流系统列头柜A18",
+      "port_name": "1L"
+    },
+    {
+      "id": "port_13_F3（出线3）_1624",
+      "label": "F3（出线3）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": -250.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_78_1L_1624",
+      "label": "新大楼一楼综合机房_1#直流系统列头柜B18\n1L",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": -250.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼一楼综合机房_1#直流系统列头柜B18",
+      "port_name": "1L"
+    },
+    {
+      "id": "port_13_F4（出线4）_1625",
+      "label": "F4（出线4）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": -150.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_78_2L_1625",
+      "label": "新大楼一楼综合机房_1#直流系统列头柜B18\n2L",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": -150.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼一楼综合机房_1#直流系统列头柜B18",
+      "port_name": "2L"
+    },
+    {
+      "id": "port_13_F5（出线5）_1626",
+      "label": "F5（出线5）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": -50.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_81_2L_1626",
+      "label": "新大楼一楼综合机房_2#直流系统列头柜D01\n2L",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": -50.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼一楼综合机房_2#直流系统列头柜D01",
+      "port_name": "2L"
+    },
+    {
+      "id": "port_13_F6（出线6）_1627",
+      "label": "F6（出线6）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": 50.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_81_1L_1627",
+      "label": "新大楼一楼综合机房_2#直流系统列头柜D01\n1L",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": 50.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼一楼综合机房_2#直流系统列头柜D01",
+      "port_name": "1L"
+    },
+    {
+      "id": "port_13_F7（出线7）_1628",
+      "label": "F7（出线7）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": 150.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_83_2L_1628",
+      "label": "新大楼一楼综合机房_1#直流系统列头柜C18\n2L",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": 150.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼一楼综合机房_1#直流系统列头柜C18",
+      "port_name": "2L"
+    },
+    {
+      "id": "port_13_F8（出线8）_1629",
+      "label": "F8（出线8）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": 250.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_83_1L_1629",
+      "label": "新大楼一楼综合机房_1#直流系统列头柜C18\n1L",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": 250.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼一楼综合机房_1#直流系统列头柜C18",
+      "port_name": "1L"
+    },
+    {
+      "id": "port_13_F9（出线9）_1630",
+      "label": "F9（出线9）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": 350.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1630_1630",
+      "label": "设备87\n入线1630",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": 350.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1630"
+    },
+    {
+      "id": "port_13_F10（出线10）_1631",
+      "label": "F10（出线10）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": 450.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1631_1631",
+      "label": "设备87\n入线1631",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": 450.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1631"
+    },
+    {
+      "id": "port_13_F11（出线11）_1632",
+      "label": "F11（出线11）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": 550.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1632_1632",
+      "label": "设备87\n入线1632",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": 550.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1632"
+    },
+    {
+      "id": "port_13_F12（出线12）_1633",
+      "label": "F12（出线12）",
+      "type": "port",
+      "nodeType": "port",
+      "x": -280,
+      "y": 650.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1633_1633",
+      "label": "设备87\n入线1633",
+      "type": "port",
+      "nodeType": "port",
+      "x": -480,
+      "y": 650.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1633"
+    },
+    {
+      "id": "port_13_F13（出线13）_1634",
+      "label": "F13（出线13）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": -650.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1634_1634",
+      "label": "设备87\n入线1634",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": -650.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1634"
+    },
+    {
+      "id": "port_13_F14（出线14）_1635",
+      "label": "F14（出线14）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": -550.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1635_1635",
+      "label": "设备87\n入线1635",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": -550.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1635"
+    },
+    {
+      "id": "port_13_F15（出线15）_1636",
+      "label": "F15（出线15）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": -450.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1636_1636",
+      "label": "设备87\n入线1636",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": -450.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1636"
+    },
+    {
+      "id": "port_13_F16（出线16）_1637",
+      "label": "F16（出线16）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": -350.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1637_1637",
+      "label": "设备87\n入线1637",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": -350.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1637"
+    },
+    {
+      "id": "port_13_F17（出线17）_1638",
+      "label": "F17（出线17）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": -250.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1638_1638",
+      "label": "设备87\n入线1638",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": -250.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1638"
+    },
+    {
+      "id": "port_13_F18（出线18）_1639",
+      "label": "F18（出线18）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": -150.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1639_1639",
+      "label": "设备87\n入线1639",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": -150.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1639"
+    },
+    {
+      "id": "port_13_F19（出线19）_1640",
+      "label": "F19（出线19）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": -50.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1640_1640",
+      "label": "设备87\n入线1640",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": -50.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1640"
+    },
+    {
+      "id": "port_13_F20（出线20）_1641",
+      "label": "F20（出线20）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": 50.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1641_1641",
+      "label": "设备87\n入线1641",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": 50.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1641"
+    },
+    {
+      "id": "port_13_F21（出线21）_1642",
+      "label": "F21（出线21）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": 150.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1642_1642",
+      "label": "设备87\n入线1642",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": 150.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1642"
+    },
+    {
+      "id": "port_13_F22（出线22）_1643",
+      "label": "F22（出线22）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": 250.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1643_1643",
+      "label": "设备87\n入线1643",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": 250.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1643"
+    },
+    {
+      "id": "port_13_F23（出线23）_1644",
+      "label": "F23（出线23）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": 350.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1644_1644",
+      "label": "设备87\n入线1644",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": 350.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1644"
+    },
+    {
+      "id": "port_13_F24（出线24）_1645",
+      "label": "F24（出线24）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": 450.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1645_1645",
+      "label": "设备87\n入线1645",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": 450.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1645"
+    },
+    {
+      "id": "port_13_F25（出线25）_1646",
+      "label": "F25（出线25）",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": 550.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_87_入线1646_1646",
+      "label": "设备87\n入线1646",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": 550.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "设备87",
+      "port_name": "入线1646"
+    },
+    {
+      "id": "port_13_端口1647_1647",
+      "label": "端口1647",
+      "type": "port",
+      "nodeType": "port",
+      "x": 280,
+      "y": 650.0,
+      "size": 15,
+      "color": {
+        "background": "#10b981",
+        "border": "#059669"
+      },
+      "shape": "circle",
+      "font": {
+        "size": 12
+      }
+    },
+    {
+      "id": "remote_14_出线1647_1647",
+      "label": "新大楼一楼综合机房_1#直流系统整流屏E16\n出线1647",
+      "type": "port",
+      "nodeType": "port",
+      "x": 480,
+      "y": 650.0,
+      "size": 16,
+      "color": {
+        "background": "#10b981",
+        "border": "#065f46"
+      },
+      "shape": "dot",
+      "font": {
+        "size": 10
+      },
+      "device_name": "新大楼一楼综合机房_1#直流系统整流屏E16",
+      "port_name": "出线1647"
+    }
+  ],
+  "edges": [
+    {
+      "id": "center_to_port_13_BF1（电池1）_1620",
+      "from": "device_13",
+      "to": "port_13_BF1（电池1）_1620",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_BF1（电池1）_1620_to_remote_31_入线1620_1620",
+      "from": "remote_31_入线1620_1620",
+      "to": "port_13_BF1（电池1）_1620",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_BF2（电池2）_1621",
+      "from": "device_13",
+      "to": "port_13_BF2（电池2）_1621",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_BF2（电池2）_1621_to_remote_32_入线1621_1621",
+      "from": "remote_32_入线1621_1621",
+      "to": "port_13_BF2（电池2）_1621",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F1（出线1）_1622",
+      "from": "device_13",
+      "to": "port_13_F1（出线1）_1622",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F1（出线1）_1622_to_remote_76_2L_1622",
+      "from": "port_13_F1（出线1）_1622",
+      "to": "remote_76_2L_1622",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F2（出线2）_1623",
+      "from": "device_13",
+      "to": "port_13_F2（出线2）_1623",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F2（出线2）_1623_to_remote_76_1L_1623",
+      "from": "port_13_F2（出线2）_1623",
+      "to": "remote_76_1L_1623",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F3（出线3）_1624",
+      "from": "device_13",
+      "to": "port_13_F3（出线3）_1624",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F3（出线3）_1624_to_remote_78_1L_1624",
+      "from": "port_13_F3（出线3）_1624",
+      "to": "remote_78_1L_1624",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F4（出线4）_1625",
+      "from": "device_13",
+      "to": "port_13_F4（出线4）_1625",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F4（出线4）_1625_to_remote_78_2L_1625",
+      "from": "port_13_F4（出线4）_1625",
+      "to": "remote_78_2L_1625",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F5（出线5）_1626",
+      "from": "device_13",
+      "to": "port_13_F5（出线5）_1626",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F5（出线5）_1626_to_remote_81_2L_1626",
+      "from": "port_13_F5（出线5）_1626",
+      "to": "remote_81_2L_1626",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F6（出线6）_1627",
+      "from": "device_13",
+      "to": "port_13_F6（出线6）_1627",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F6（出线6）_1627_to_remote_81_1L_1627",
+      "from": "port_13_F6（出线6）_1627",
+      "to": "remote_81_1L_1627",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F7（出线7）_1628",
+      "from": "device_13",
+      "to": "port_13_F7（出线7）_1628",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F7（出线7）_1628_to_remote_83_2L_1628",
+      "from": "port_13_F7（出线7）_1628",
+      "to": "remote_83_2L_1628",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F8（出线8）_1629",
+      "from": "device_13",
+      "to": "port_13_F8（出线8）_1629",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F8（出线8）_1629_to_remote_83_1L_1629",
+      "from": "port_13_F8（出线8）_1629",
+      "to": "remote_83_1L_1629",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "RVVZ-240mm²",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F9（出线9）_1630",
+      "from": "device_13",
+      "to": "port_13_F9（出线9）_1630",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F9（出线9）_1630_to_remote_87_入线1630_1630",
+      "from": "remote_87_入线1630_1630",
+      "to": "port_13_F9（出线9）_1630",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F10（出线10）_1631",
+      "from": "device_13",
+      "to": "port_13_F10（出线10）_1631",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F10（出线10）_1631_to_remote_87_入线1631_1631",
+      "from": "remote_87_入线1631_1631",
+      "to": "port_13_F10（出线10）_1631",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F11（出线11）_1632",
+      "from": "device_13",
+      "to": "port_13_F11（出线11）_1632",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F11（出线11）_1632_to_remote_87_入线1632_1632",
+      "from": "remote_87_入线1632_1632",
+      "to": "port_13_F11（出线11）_1632",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F12（出线12）_1633",
+      "from": "device_13",
+      "to": "port_13_F12（出线12）_1633",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F12（出线12）_1633_to_remote_87_入线1633_1633",
+      "from": "remote_87_入线1633_1633",
+      "to": "port_13_F12（出线12）_1633",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F13（出线13）_1634",
+      "from": "device_13",
+      "to": "port_13_F13（出线13）_1634",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F13（出线13）_1634_to_remote_87_入线1634_1634",
+      "from": "remote_87_入线1634_1634",
+      "to": "port_13_F13（出线13）_1634",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F14（出线14）_1635",
+      "from": "device_13",
+      "to": "port_13_F14（出线14）_1635",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F14（出线14）_1635_to_remote_87_入线1635_1635",
+      "from": "remote_87_入线1635_1635",
+      "to": "port_13_F14（出线14）_1635",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F15（出线15）_1636",
+      "from": "device_13",
+      "to": "port_13_F15（出线15）_1636",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F15（出线15）_1636_to_remote_87_入线1636_1636",
+      "from": "remote_87_入线1636_1636",
+      "to": "port_13_F15（出线15）_1636",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F16（出线16）_1637",
+      "from": "device_13",
+      "to": "port_13_F16（出线16）_1637",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F16（出线16）_1637_to_remote_87_入线1637_1637",
+      "from": "remote_87_入线1637_1637",
+      "to": "port_13_F16（出线16）_1637",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F17（出线17）_1638",
+      "from": "device_13",
+      "to": "port_13_F17（出线17）_1638",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F17（出线17）_1638_to_remote_87_入线1638_1638",
+      "from": "remote_87_入线1638_1638",
+      "to": "port_13_F17（出线17）_1638",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F18（出线18）_1639",
+      "from": "device_13",
+      "to": "port_13_F18（出线18）_1639",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F18（出线18）_1639_to_remote_87_入线1639_1639",
+      "from": "remote_87_入线1639_1639",
+      "to": "port_13_F18（出线18）_1639",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F19（出线19）_1640",
+      "from": "device_13",
+      "to": "port_13_F19（出线19）_1640",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F19（出线19）_1640_to_remote_87_入线1640_1640",
+      "from": "remote_87_入线1640_1640",
+      "to": "port_13_F19（出线19）_1640",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F20（出线20）_1641",
+      "from": "device_13",
+      "to": "port_13_F20（出线20）_1641",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F20（出线20）_1641_to_remote_87_入线1641_1641",
+      "from": "remote_87_入线1641_1641",
+      "to": "port_13_F20（出线20）_1641",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F21（出线21）_1642",
+      "from": "device_13",
+      "to": "port_13_F21（出线21）_1642",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F21（出线21）_1642_to_remote_87_入线1642_1642",
+      "from": "remote_87_入线1642_1642",
+      "to": "port_13_F21（出线21）_1642",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F22（出线22）_1643",
+      "from": "device_13",
+      "to": "port_13_F22（出线22）_1643",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F22（出线22）_1643_to_remote_87_入线1643_1643",
+      "from": "remote_87_入线1643_1643",
+      "to": "port_13_F22（出线22）_1643",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F23（出线23）_1644",
+      "from": "device_13",
+      "to": "port_13_F23（出线23）_1644",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F23（出线23）_1644_to_remote_87_入线1644_1644",
+      "from": "remote_87_入线1644_1644",
+      "to": "port_13_F23（出线23）_1644",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F24（出线24）_1645",
+      "from": "device_13",
+      "to": "port_13_F24（出线24）_1645",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F24（出线24）_1645_to_remote_87_入线1645_1645",
+      "from": "remote_87_入线1645_1645",
+      "to": "port_13_F24（出线24）_1645",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_F25（出线25）_1646",
+      "from": "device_13",
+      "to": "port_13_F25（出线25）_1646",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_F25（出线25）_1646_to_remote_87_入线1646_1646",
+      "from": "remote_87_入线1646_1646",
+      "to": "port_13_F25（出线25）_1646",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "",
+      "font": {
+        "size": 10
+      }
+    },
+    {
+      "id": "center_to_port_13_端口1647_1647",
+      "from": "device_13",
+      "to": "port_13_端口1647_1647",
+      "width": 2,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "port_13_端口1647_1647_to_remote_14_出线1647_1647",
+      "from": "port_13_端口1647_1647",
+      "to": "remote_14_出线1647_1647",
+      "width": 3,
+      "color": {
+        "color": "#6b7280"
+      },
+      "arrows": {
+        "to": {
+          "enabled": true
+        }
+      },
+      "label": "DC",
+      "font": {
+        "size": 10
+      }
+    }
+  ]
+}

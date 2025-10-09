@@ -3012,7 +3012,15 @@ async def get_graph_data(
                     "remark": conn.remark,
                     "connection_id": conn.id
                 }
-            edges.append(edge_data)
+            # 过滤无效连接与缺失端点，统一箭头方向
+            _label = (edge_data.get("label") or "").strip()
+            _from = edge_data.get("from")
+            _to = edge_data.get("to")
+            if _label and _label.lower() not in ("nan", "none", "null", "空", "未知") and _from and _to:
+                edge_data["arrows"] = "to"
+                edges.append(edge_data)
+            else:
+                logger.debug(f"跳过无效设备级连接: label={_label}, from={_from}, to={_to}, connection_id={edge_data.get('connection_id')}")
                 
     # 构建返回数据
     response_data = {"nodes": nodes, "edges": edges, "level": level}
@@ -3268,19 +3276,24 @@ def _create_port_edges(connection: Connection, direction: str) -> list:
         from_ports = source_ports
         to_ports = target_ports
     
-    # 创建端口间的连接边
+    # 创建端口间的连接边（过滤无效标签和端点）
+    _edge_label = (connection.cable_model or connection.connection_type or "").strip()
+    if not _edge_label or _edge_label.lower() in ("nan", "none", "null", "空", "未知"):
+        logger.debug(f"跳过无效端口级连接: label={_edge_label}, conn_id={connection.id}")
+        return edges
     for from_port in from_ports:
         for to_port in to_ports:
-            edges.append({
-                "from": from_port,
-                "to": to_port,
-                "arrows": arrow_direction,
-                "label": connection.cable_model or connection.connection_type or "",
-                "connection_type": connection.connection_type,
-                "cable_model": connection.cable_model,
-                "connection_id": connection.id,
-                "remark": connection.remark
-            })
+            if from_port and to_port:
+                edges.append({
+                    "from": from_port,
+                    "to": to_port,
+                    "arrows": "to",
+                    "label": _edge_label,
+                    "connection_type": connection.connection_type,
+                    "cable_model": connection.cable_model,
+                    "connection_id": connection.id,
+                    "remark": connection.remark
+                })
     
     return edges
 

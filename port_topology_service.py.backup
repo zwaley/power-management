@@ -142,9 +142,6 @@ class PortTopologyService:
             self._process_port(port_info, i, 'right', device, nodes, edges, right_port_count, left_port_count)
 
     def _is_valid_port_name(self, name):
-        # 修复None值处理：如果name是None，直接返回False，避免创建虚假的remote节点
-        if name is None:
-            return False
         if not name:
             return False
         s = str(name).strip().lower()
@@ -204,54 +201,53 @@ class PortTopologyService:
         }
         edges.append(device_to_port_edge)
 
-        # 修复连接创建条件：只要有对端设备且不是自连接就创建连接，不强制要求电缆信息
-        is_different_device = str(device_id) != str(remote_device_id)
+        # 仅当“电缆类型”非空时才创建对端节点与连线
+        cable_type_nonempty = bool((conn.cable_type or '').strip())
         should_create_remote = (
-            is_different_device and
+            cable_type_nonempty and
             bool(remote_device_id) and
             remote_device is not None and
             self._is_valid_port_name(remote_port)
         )
 
-        # 只有在满足条件时才创建remote节点
-        if should_create_remote:
-            remote_combined_x = port_x + remote_x_offset
-            remote_device_name = remote_device.name
-            remote_combined_label = f"{remote_device_name}-{remote_port}" if self._is_valid_port_name(remote_port) else remote_device_name
-            remote_combined_id = f"remote_combined_{conn.id}"
+        if not should_create_remote:
+            return
 
-            remote_combined_node = {
-                "id": remote_combined_id, "label": remote_combined_label, "type": "port", "nodeType": "port", "level": 2,
-                "x": remote_combined_x, "y": port_y,
-                "color": {"background": "#10b981", "border": "#065f46"},
-                "font": {"color": "#ffffff"}, "shape": "dot", "size": 16,
-                "device_name": remote_device_name,
-                "station": remote_device.station if remote_device else None,
-                "port_name": remote_port
-            }
-            nodes.append(remote_combined_node)
+        remote_combined_x = port_x + remote_x_offset
+        remote_device_name = remote_device.name
+        remote_combined_label = f"{remote_device_name}-{remote_port}" if self._is_valid_port_name(remote_port) else remote_device_name
+        remote_combined_id = f"remote_combined_{conn.id}"
 
-        # 只有在满足条件时才创建连接边
-        if should_create_remote:
-            upstream_downstream = (conn.upstream_downstream or '').strip()
-            cable_label = (conn.cable_model or '').strip()
-            normalized_ct = self._normalize_connection_type(conn.connection_type)
-            edge_color_val = '#f59e0b' if normalized_ct == '交流' else ('#ef4444' if normalized_ct == '直流' else '#9ca3af')
-            edge_color = {"color": edge_color_val}
+        remote_combined_node = {
+            "id": remote_combined_id, "label": remote_combined_label, "type": "port", "nodeType": "port", "level": 2,
+            "x": remote_combined_x, "y": port_y,
+            "color": {"background": "#10b981", "border": "#065f46"},
+            "font": {"color": "#ffffff"}, "shape": "dot", "size": 16,
+            "device_name": remote_device_name,
+            "station": remote_device.station if remote_device else None,
+            "port_name": remote_port
+        }
+        nodes.append(remote_combined_node)
 
-            from_node, to_node = local_port_id, remote_combined_id
-            if (upstream_downstream == "下游") or (upstream_downstream == "" and direction == "incoming"):
-                from_node, to_node = remote_combined_id, local_port_id
+        upstream_downstream = (conn.upstream_downstream or '').strip()
+        cable_label = (conn.cable_model or '').strip()
+        normalized_ct = self._normalize_connection_type(conn.connection_type)
+        edge_color_val = '#f59e0b' if normalized_ct == '交流' else ('#ef4444' if normalized_ct == '直流' else '#9ca3af')
+        edge_color = {"color": edge_color_val}
 
-            # 边对象：必须有电缆类型（已在 should_create_remote 过滤），标签使用电缆型号（可为空则不显示）
-            connection_edge = {
-                "id": f"conn_{conn.id}", "from": from_node, "to": to_node, "label": cable_label,
-                "color": edge_color, "width": 3, "arrows": {"to": {"enabled": True}},
-                "font": {"size": 10, "color": "#374151"},
-                "connection_id": conn.id, "connection_type": conn.connection_type,
-                "cable_type": conn.cable_type, "cable_model": conn.cable_model
-            }
-            edges.append(connection_edge)
+        from_node, to_node = local_port_id, remote_combined_id
+        if (upstream_downstream == "下游") or (upstream_downstream == "" and direction == "incoming"):
+            from_node, to_node = remote_combined_id, local_port_id
+
+        # 边对象：必须有电缆类型（已在 should_create_remote 过滤），标签使用电缆型号（可为空则不显示）
+        connection_edge = {
+            "id": f"conn_{conn.id}", "from": from_node, "to": to_node, "label": cable_label,
+            "color": edge_color, "width": 3, "arrows": {"to": {"enabled": True}},
+            "font": {"size": 10, "color": "#374151"},
+            "connection_id": conn.id, "connection_type": conn.connection_type,
+            "cable_type": conn.cable_type, "cable_model": conn.cable_model
+        }
+        edges.append(connection_edge)
         
         # 返回拓扑数据
         topology_error_tracker.log_error(

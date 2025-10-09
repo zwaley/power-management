@@ -854,6 +854,52 @@
             });
         }
         
+        // 保存筛选条件到localStorage
+        function saveFilterConditions() {
+            const filterConditions = {
+                station: document.getElementById('stationFilter').value,
+                name: document.getElementById('nameFilter').value,
+                deviceType: document.getElementById('deviceTypeFilter').value,
+                vendor: document.getElementById('vendorFilter').value,
+                lifecycle: document.getElementById('lifecycleFilter').value
+            };
+            localStorage.setItem('deviceFilterConditions', JSON.stringify(filterConditions));
+        }
+        
+        // 从localStorage恢复筛选条件
+        function restoreFilterConditions() {
+            try {
+                const savedConditions = localStorage.getItem('deviceFilterConditions');
+                if (savedConditions) {
+                    const conditions = JSON.parse(savedConditions);
+                    
+                    // 恢复各个筛选条件
+                    if (conditions.station) {
+                        document.getElementById('stationFilter').value = conditions.station;
+                    }
+                    if (conditions.name) {
+                        document.getElementById('nameFilter').value = conditions.name;
+                    }
+                    if (conditions.deviceType) {
+                        document.getElementById('deviceTypeFilter').value = conditions.deviceType;
+                    }
+                    if (conditions.vendor) {
+                        document.getElementById('vendorFilter').value = conditions.vendor;
+                    }
+                    if (conditions.lifecycle) {
+                        document.getElementById('lifecycleFilter').value = conditions.lifecycle;
+                    }
+                    
+                    // 应用恢复的筛选条件
+                    filterDevices();
+                }
+            } catch (error) {
+                console.error('恢复筛选条件失败:', error);
+                // 如果恢复失败，清除损坏的数据
+                localStorage.removeItem('deviceFilterConditions');
+            }
+        }
+
         // 设备筛选功能
         function filterDevices() {
             const stationFilter = document.getElementById('stationFilter').value.toLowerCase();
@@ -863,6 +909,9 @@
             const lifecycleFilter = document.getElementById('lifecycleFilter').value;
             const table = document.getElementById('deviceTable');
             const rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+            
+            // 保存当前筛选条件
+            saveFilterConditions();
             
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i];
@@ -900,6 +949,10 @@
             document.getElementById('deviceTypeFilter').value = '';
             document.getElementById('vendorFilter').value = '';
             document.getElementById('lifecycleFilter').value = '';
+            
+            // 清除localStorage中保存的筛选条件
+            localStorage.removeItem('deviceFilterConditions');
+            
             filterDevices();
         }
         
@@ -929,6 +982,9 @@
                     closeSuccessMessage();
                 }, 5000);
             }
+            
+            // 恢复筛选条件
+            restoreFilterConditions();
         });
     </script>
     
