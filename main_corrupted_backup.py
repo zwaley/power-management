@@ -2,11 +2,11 @@ import os
 import logging
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, Request, Depends, Form, UploadFile, File, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -16,7 +16,7 @@ import pandas as pd
 from typing import List, Optional
 from urllib.parse import quote
 import io
-import traceback # 导入 traceback 用于打印详细的错误堆栈
+import traceback # 瀵煎叆 traceback 鐢ㄤ簬鎵撳嵃璇︾粏鐨勯敊璇爢鏍?
 from datetime import datetime, timedelta, date
 import re
 from openpyxl import Workbook
@@ -25,7 +25,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from pydantic import BaseModel
 import re
 from sqlalchemy import and_
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -34,8 +34,9 @@ from sqlalchemy import func, or_
 import pandas as pd
 from typing import List, Optional
 from urllib.parse import quote
+from pathlib import Path
 import io
-import traceback # 导入 traceback 用于打印详细的错误堆栈
+import traceback # 瀵煎叆 traceback 鐢ㄤ簬鎵撳嵃璇︾粏鐨勯敊璇爢鏍?
 from datetime import datetime, timedelta, date
 import re
 from openpyxl import Workbook
@@ -46,7 +47,7 @@ import re
 from sqlalchemy import and_
 
 # Import configuration
-from config import ADMIN_PASSWORD, PORT
+from config import ADMIN_PASSWORD, HOST, PORT
 
 # Fixed imports, using correct function names and models
 from models import SessionLocal, Device, Connection, LifecycleRule, create_db_and_tables
@@ -55,18 +56,18 @@ from device_types import STANDARD_DEVICE_TYPES, validate_device_type, get_device
 
 # Import error tracking system
 from topology_error_tracker import topology_error_tracker, ErrorCategory, ErrorLevel
+from port_topology_service import PortTopologyService
 
 
 # --- Port Statistics Service Class ---
 
 class PortStatisticsService:
-    """端口统计服务类，用于处理设备端口使用情况的统计分析"""
-    
+    """绔彛缁熻鏈嶅姟绫伙紝鐢ㄤ簬澶勭悊璁惧绔彛浣跨敤鎯呭喌鐨勭粺璁″垎鏋?"""
     def __init__(self, db: Session):
         self.db = db
     
     def _get_device_port_summary(self) -> dict:
-        """获取设备端口总览 - 采用集合统计逻辑，统计所有有连接的端口"""
+        """鑾峰彇璁惧绔彛鎬昏 - 閲囩敤闆嗗悎缁熻閫昏緫锛岀粺璁℃墍鏈夋湁杩炴帴鐨勭鍙?"""
         try:
             # Count total devices
             total_devices = self.db.query(Device).count()
@@ -90,7 +91,7 @@ class PortStatisticsService:
                 if conn.source_breaker_number and conn.source_device_id:
                     port_key = f"device_{conn.source_device_id}_breaker_{conn.source_breaker_number}"
                     all_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                     if conn.connection_type and conn.connection_type.strip():
                         connected_ports.add(port_key)
                 
@@ -98,14 +99,14 @@ class PortStatisticsService:
                 if conn.target_fuse_number and conn.target_device_id:
                     port_key = f"device_{conn.target_device_id}_fuse_{conn.target_fuse_number}"
                     all_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                     if conn.connection_type and conn.connection_type.strip():
                         connected_ports.add(port_key)
                         
                 if conn.target_breaker_number and conn.target_device_id:
                     port_key = f"device_{conn.target_device_id}_breaker_{conn.target_breaker_number}"
                     all_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                     if conn.connection_type and conn.connection_type.strip():
                         connected_ports.add(port_key)
             
@@ -122,7 +123,7 @@ class PortStatisticsService:
                 "utilization_rate": round(utilization_rate, 2)
             }
         except Exception as e:
-            print(f"获取设备端口总览时出错: {e}")
+            print(f"鑾峰彇璁惧绔彛鎬昏鏃跺嚭閿? {e}")
             return {
                 "total_devices": 0,
                 "total_ports": 0,
@@ -132,30 +133,30 @@ class PortStatisticsService:
             }
     
     def get_device_port_details(self, device_id: int) -> dict:
-        """获取指定设备的端口详情 - 基于连接表中该设备的实际端口数据"""
+        """鑾峰彇鎸囧畾璁惧鐨勭鍙ｈ鎯?- 鍩轰簬杩炴帴琛ㄤ腑璇ヨ澶囩殑瀹為檯绔彛鏁版嵁"""
         try:
-            # 获取设备信息
+            # 鑾峰彇璁惧淇℃伅
             device = self.db.query(Device).filter(Device.id == device_id).first()
             if not device:
                 raise HTTPException(status_code=404, detail="设备不存在")
             
-            # 获取该设备作为A端设备的所有连接记录，从中提取实际端口信息
+            # 鑾峰彇璇ヨ澶囦綔涓篈绔澶囩殑鎵€鏈夎繛鎺ヨ褰曪紝浠庝腑鎻愬彇瀹為檯绔彛淇℃伅
             connections = self.db.query(Connection).filter(
                 Connection.source_device_id == device_id
             ).all()
             
-            # 收集该设备的所有端口信息（基于连接表中的实际数据）
+            # 鏀堕泦璇ヨ澶囩殑鎵€鏈夌鍙ｄ俊鎭紙鍩轰簬杩炴帴琛ㄤ腑鐨勫疄闄呮暟鎹級
             ports = []
             port_usage_map = {}
             
             for conn in connections:
-                # 处理熔丝端口
+                # 澶勭悊鐔斾笣绔彛
                 if conn.source_fuse_number:
-                    port_key = f"熔丝-{conn.source_fuse_number}"
+                    port_key = f"鐔斾笣-{conn.source_fuse_number}"
                     if port_key not in port_usage_map:
                         port_info = {
                             "port_name": port_key,
-                            "port_type": "熔丝",
+                            "port_type": "鐔斾笣",
                             "port_number": conn.source_fuse_number,
                             "specification": conn.source_fuse_spec or "未知规格",
                             "rating": self._extract_rating_from_spec(conn.source_fuse_spec or ""),
@@ -166,13 +167,13 @@ class PortStatisticsService:
                         ports.append(port_info)
                         port_usage_map[port_key] = port_info
                 
-                # 处理空开端口
+                # 澶勭悊绌哄紑绔彛
                 if conn.source_breaker_number:
-                    port_key = f"空开-{conn.source_breaker_number}"
+                    port_key = f"绌哄紑-{conn.source_breaker_number}"
                     if port_key not in port_usage_map:
                         port_info = {
                             "port_name": port_key,
-                            "port_type": "空开",
+                            "port_type": "绌哄紑",
                             "port_number": conn.source_breaker_number,
                             "specification": conn.source_breaker_spec or "未知规格",
                             "rating": self._extract_rating_from_spec(conn.source_breaker_spec or ""),
@@ -189,9 +190,9 @@ class PortStatisticsService:
                     "device_info": {
                         "id": device.id,
                         "name": device.name,
-                        "device_type": device.device_type or "未知",
-                        "station": device.station or "未知",
-                        "location": device.location or "未知"
+                        "device_type": device.device_type or "鏈煡",
+                        "station": device.station or "鏈煡",
+                        "location": device.location or "鏈煡"
                     },
                     "port_summary": {
                         "total_ports": 0,
@@ -212,9 +213,9 @@ class PortStatisticsService:
                 "device_info": {
                     "id": device.id,
                     "name": device.name,
-                    "device_type": device.device_type or "未知",
-                    "station": device.station or "未知",
-                    "location": device.location or "未知"
+                    "device_type": device.device_type or "鏈煡",
+                    "station": device.station or "鏈煡",
+                    "location": device.location or "鏈煡"
                 },
                 "port_summary": {
                     "total_ports": total_ports,
@@ -227,59 +228,58 @@ class PortStatisticsService:
         except HTTPException:
             raise
         except Exception as e:
-            print(f"获取设备端口详情时出错: {e}")
+            print(f"鑾峰彇璁惧绔彛璇︽儏鏃跺嚭閿? {e}")
             traceback.print_exc()
-            raise HTTPException(status_code=500, detail=f"获取设备端口详情失败: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"鑾峰彇璁惧绔彛璇︽儏澶辫触: {str(e)}")
     
     def _extract_rating_from_spec(self, spec: str) -> str:
-        """从规格字符串中提取额定值"""
+        """浠庤鏍煎瓧绗︿覆涓彁鍙栭瀹氬€?"""
         if not spec:
-            return "未知"
+            return "鏈煡"
         
-        # 尝试提取数字和单位（如：63A, 100A, 2.5mm²等）
+        # 灏濊瘯鎻愬彇鏁板瓧鍜屽崟浣嶏紙濡傦細63A, 100A, 2.5mm虏绛夛級
         import re
-        pattern = r'(\d+(?:\.\d+)?)\s*([A-Za-z²]+)'
+        pattern = r'(\d+(?:\.\d+)?)\s*([A-Za-z虏]+)'
         match = re.search(pattern, spec)
         if match:
             return f"{match.group(1)}{match.group(2)}"
         else:
-            return "未知"
+            return "鏈煡"
 
 # --- Port topology service class ---
 class PortTopologyService:
     """Port topology service class for generating port topology data"""
-    
     def __init__(self, db: Session):
         self.db = db
     
     def get_port_service_data(self, device_id: int, mode: str = "all") -> dict:
         """
-        获取端口拓扑图数据 - 服务层方法
+        鑾峰彇绔彛鎷撴墤鍥炬暟鎹?- 鏈嶅姟灞傛柟娉?
         
         Args:
-            device_id: 设备ID
-            mode: 显示模式，可选 'all' 或 'used'
+            device_id: 璁惧ID
+            mode: 鏄剧ず妯″紡锛屽彲閫?'all' 鎴?'used'
         
         Returns:
-            包含节点和边的拓扑图数据
+            鍖呭惈鑺傜偣鍜岃竟鐨勬嫇鎵戝浘鏁版嵁
         """
         try:
             # Get the center device
-            logger.info(f"查询中心设备，设备ID: {device_id}")
+            logger.info(f"鏌ヨ涓績璁惧锛岃澶嘔D: {device_id}")
             center_device = self.db.query(Device).filter(Device.id == device_id).first()
             if not center_device:
                 logger.error(f"设备不存在，设备ID: {device_id}")
                 raise HTTPException(status_code=404, detail="设备不存在")
             
             # Get all connections related to this device
-            logger.info(f"查询与设备ID {device_id} 相关的所有连接")
+            logger.info(f"鏌ヨ涓庤澶嘔D {device_id} 鐩稿叧鐨勬墍鏈夎繛鎺?)
             connections = self.db.query(Connection).filter(
                 (Connection.source_device_id == device_id) |
                 (Connection.target_device_id == device_id)
             ).all()
             
             if not connections:
-                logger.info(f"设备ID {device_id} 没有相关连接")
+                logger.info(f"璁惧ID {device_id} 娌℃湁鐩稿叧杩炴帴")
                 return {
                     "nodes": [],
                     "edges": []
@@ -309,7 +309,7 @@ class PortTopologyService:
             for conn in connections:
                 # Check if display conditions are met
                 if mode == "used" and not conn.connection_type:
-                    continue  # 跳过空闲端口
+                    continue  # 璺宠繃绌洪棽绔彛
                 
                 # Process source port (local)
                 if conn.source_device_id == device_id:
@@ -340,7 +340,7 @@ class PortTopologyService:
                         }
                         nodes.append(port_node)
                         
-                        # 添加连接线
+                        # 娣诲姞杩炴帴绾?
                         edge_id = f"edge_{device_id}_{source_port}"
                         edge_data = {
                             "id": edge_id,
@@ -354,12 +354,12 @@ class PortTopologyService:
                         }
                         edges.append(edge_data)
                         
-                        # 处理对端设备
+                        # 澶勭悊瀵圭璁惧
                         if conn.target_device:
                             target_device = conn.target_device
                             target_port = conn.target_fuse_number or conn.target_breaker_number
                             
-                            # 创建对端设备节点
+                            # 鍒涘缓瀵圭璁惧鑺傜偣
                             target_node_id = f"target_{conn.target_device_id}"
                             target_node = {
                                 "id": target_node_id,
@@ -372,7 +372,7 @@ class PortTopologyService:
                             }
                             nodes.append(target_node)
                             
-                            # 添加连接线到对端设备
+                            # 娣诲姞杩炴帴绾垮埌瀵圭璁惧
                             edge_target_id = f"edge_{device_id}_{source_port}_target"
                             edge_target_data = {
                                 "id": edge_target_id,
@@ -386,7 +386,7 @@ class PortTopologyService:
                             }
                             edges.append(edge_target_data)
                 
-                # 处理目标端口（本端）
+                # 澶勭悊鐩爣绔彛锛堟湰绔級
                 elif conn.target_device_id == device_id:
                     target_port = conn.target_fuse_number or conn.target_breaker_number
                     if target_port:
@@ -394,7 +394,7 @@ class PortTopologyService:
                         port_id = f"port_{device_id}_{target_port}"
                         port_label = f"{target_port}"
                         
-                        # 根据端口数量决定左右分布
+                        # 鏍规嵁绔彛鏁伴噺鍐冲畾宸﹀彸鍒嗗竷
                         if port_count % 2 == 1:
                             port_x = -100
                             port_y = 50 + (port_count // 2) * 80
@@ -415,7 +415,7 @@ class PortTopologyService:
                         }
                         nodes.append(port_node)
                         
-                        # 添加连接线
+                        # 娣诲姞杩炴帴绾?
                         edge_id = f"edge_{device_id}_{target_port}"
                         edge_data = {
                             "id": edge_id,
@@ -429,12 +429,12 @@ class PortTopologyService:
                         }
                         edges.append(edge_data)
                         
-                        # 处理对端设备
+                        # 澶勭悊瀵圭璁惧
                         if conn.source_device:
                             source_device = conn.source_device
                             source_port = conn.source_fuse_number or conn.source_breaker_number
                             
-                            # 创建对端设备节点
+                            # 鍒涘缓瀵圭璁惧鑺傜偣
                             source_node_id = f"source_{conn.source_device_id}"
                             source_node = {
                                 "id": source_node_id,
@@ -447,7 +447,7 @@ class PortTopologyService:
                             }
                             nodes.append(source_node)
                             
-                            # 添加连接线到对端设备
+                            # 娣诲姞杩炴帴绾垮埌瀵圭璁惧
                             edge_source_id = f"edge_{device_id}_{target_port}_source"
                             edge_source_data = {
                                 "id": edge_source_id,
@@ -461,15 +461,15 @@ class PortTopologyService:
                             }
                             edges.append(edge_source_data)
             
-            logger.info(f"成功生成端口拓扑图数据，节点数: {len(nodes)}, 边数: {len(edges)}")
+            logger.info(f"鎴愬姛鐢熸垚绔彛鎷撴墤鍥炬暟鎹紝鑺傜偣鏁? {len(nodes)}, 杈规暟: {len(edges)}")
             return {
                 "nodes": nodes,
                 "edges": edges
             }
         except Exception as e:
-            logger.error(f"获取端口拓扑图数据时出错: {str(e)}")
+            logger.error(f"鑾峰彇绔彛鎷撴墤鍥炬暟鎹椂鍑洪敊: {str(e)}")
             traceback.print_exc()
-            # 返回标准格式的空数据，避免前端解析失败
+            # 杩斿洖鏍囧噯鏍煎紡鐨勭┖鏁版嵁锛岄伩鍏嶅墠绔В鏋愬け璐?
             return {
                 "nodes": [],
                 "edges": []
@@ -477,6 +477,19 @@ class PortTopologyService:
 
 # Create FastAPI application instance
 app = FastAPI(title="DC Asset Manager", description="Power Resource Management System")
+
+# 绔欑偣鍥炬爣璺敱锛岄伩鍏嶆祻瑙堝櫒璇锋眰 /favicon.ico 404
+_STATIC_DIR = Path(__file__).parent / "static"
+_FAVICON = _STATIC_DIR / "icons.svg"
+
+@app.get("/favicon.ico")
+async def favicon():
+    try:
+        if _FAVICON.exists():
+            return FileResponse(str(_FAVICON), media_type="image/svg+xml")
+    except Exception:
+        pass
+    return RedirectResponse(url="/static/icons.svg")
 
 # Database session dependency
 def get_db():
@@ -490,9 +503,9 @@ def get_db():
 @app.get("/health")
 @app.get("/api/health")
 async def health_check(db: Session = Depends(get_db)):
-    """健康检查：验证服务与数据库可用性"""
+    """鍋ュ悍妫€鏌ワ細楠岃瘉鏈嶅姟涓庢暟鎹簱鍙敤鎬?"""
     try:
-        # 简单数据库连通性检查
+        # 绠€鍗曟暟鎹簱杩為€氭€ф鏌?
         device_count = db.query(func.count(Device.id)).scalar() or 0
         return {
             "status": "ok",
@@ -504,7 +517,7 @@ async def health_check(db: Session = Depends(get_db)):
         topology_error_tracker.log_error(
             category=ErrorCategory.DATABASE_ERROR,
             level=ErrorLevel.ERROR,
-            message=f"健康检查失败: {str(e)}",
+            message=f"鍋ュ悍妫€鏌ュけ璐? {str(e)}",
             exception=e
         )
         raise HTTPException(status_code=500, detail="healthcheck failed")
@@ -513,346 +526,28 @@ async def health_check(db: Session = Depends(get_db)):
 @app.get("/api/port-topology/{device_id}")
 async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Session = Depends(get_db)):
     """
-    获取设备的端口拓扑图数据 - 严格按照设计规范实现
+    获取端口级拓扑图数据（路由层）：委托 PortTopologyService 构建数据
     """
     try:
-        # 获取设备信息
-        device = db.query(Device).filter(Device.id == device_id).first()
-        if not device:
-            raise HTTPException(status_code=404, detail="设备不存在")
-        
-        # 获取设备的所有连接
-        connections = db.query(Connection).filter(
-            or_(Connection.source_device_id == device_id, 
-                Connection.target_device_id == device_id)
-        ).all()
-        
-        nodes = []
-        edges = []
-        
-        # 1. 创建中心设备节点 - 按设计规范显示"机房名称 + 设备名称"
-        device_label = device.name
-        if (device.station and 
-            device.station != "未知站点" and 
-            device.station.lower() != 'nan' and
-            device.station.strip() != '' and
-            device.station.lower() != 'none'):
-            device_label = f"{device.station}\n{device.name}"
-            
-        center_device_node = {
-            "id": f"device_{device_id}",
-            "label": device_label,
-            "type": "center_device",
-            "nodeType": "device",  # 添加nodeType字段供前端识别
-            "x": 0,
-            "y": 0,
-            "size": 30,
-            "color": {"background": "#3b82f6", "border": "#1e40af"},
-            "shape": "box",
-            "font": {"size": 14, "color": "#ffffff"}
-        }
-        nodes.append(center_device_node)
-        
-        # 2. 收集所有端口连接信息
-        all_port_connections = []
-        for conn in connections:
-            if conn.source_device_id == device_id:
-                # 本设备是源设备：优先使用熔丝/空开编号，其次使用原始端口字段
-                local_port = (
-                    conn.source_fuse_number or conn.source_breaker_number or conn.source_port or f"端口{conn.id}"
-                )
-                remote_device_id = conn.target_device_id
-                # 对端端口只使用真实数据，不生成占位名称
-                remote_port = (
-                    conn.target_fuse_number or conn.target_breaker_number or conn.target_port
-                )
-                connection_direction = "outgoing"
-            else:
-                # 本设备是目标设备：优先使用熔丝/空开编号，其次使用原始端口字段
-                local_port = (
-                    conn.target_fuse_number or conn.target_breaker_number or conn.target_port or f"端口{conn.id}"
-                )
-                remote_device_id = conn.source_device_id
-                # 对端端口只使用真实数据，不生成占位名称
-                remote_port = (
-                    conn.source_fuse_number or conn.source_breaker_number or conn.source_port
-                )
-                connection_direction = "incoming"
-            
-            all_port_connections.append({
-                'conn': conn,
-                'local_port': local_port,
-                'remote_device_id': remote_device_id,
-                'remote_port': remote_port,
-                'direction': connection_direction
-            })
-        
-        # 3. 按设计规范实现左右分区 - 平均分配端口数量
-        total_ports = len(all_port_connections)
-        left_port_count = (total_ports + 1) // 2  # 奇数时左侧多一个
-        
-        left_ports = all_port_connections[:left_port_count]
-        right_ports = all_port_connections[left_port_count:]
-        
-        # 4. 处理左侧端口
-        for i, port_info in enumerate(left_ports):
-            conn = port_info['conn']
-            local_port = port_info['local_port']
-            remote_device_id = port_info['remote_device_id']
-            remote_port = port_info['remote_port']
-            direction = port_info['direction']
-            
-            # 获取对端设备信息
-            remote_device = db.query(Device).filter(Device.id == remote_device_id).first()
-            
-            # 左侧端口位置计算 - 自上而下排列，整体居中
-            port_x = -280
-            if left_port_count > 1:
-                total_height = (left_port_count - 1) * 100
-                start_y = -total_height / 2
-                port_y = start_y + i * 100
-            else:
-                port_y = 0
-            
-            # 创建端口节点
-            port_node_id = f"port_{device_id}_{local_port}_{conn.id}"
-            port_node = {
-                "id": port_node_id,
-                "label": local_port,  # 严格使用原始port_name
-                "type": "port",
-                "nodeType": "port",  # 添加nodeType字段供前端识别
-                "x": port_x,
-                "y": port_y,
-                "size": 15,
-                "color": {"background": "#10b981", "border": "#059669"},
-                "shape": "circle",
-                "font": {"size": 12}
-            }
-            nodes.append(port_node)
-            
-            # 连接中心设备到端口
-            center_to_port_edge = {
-                "id": f"center_to_{port_node_id}",
-                "from": f"device_{device_id}",
-                "to": port_node_id,
-                "width": 2,
-                "color": {"color": "#6b7280"},
-                "arrows": {"to": {"enabled": False}}
-            }
-            edges.append(center_to_port_edge)
-            
-            # 仅依赖真实对端端口生成连线；对端设备可缺失（不捏造设备名）
-            if remote_port:
-                remote_node_id = f"remote_{remote_device_id}_{remote_port}_{conn.id}"
-                remote_x = port_x - 200
-
-                # 设备名称回退处理，避免 "未知站点"/空值导致前端过滤
-                # 对端设备名称回退：设备不存在时仅显示端口编号
-                remote_name = None
-                if remote_device:
-                    nm = (remote_device.name or '').strip()
-                    if nm and nm.lower() not in ('nan','none','null') and nm != '未知站点':
-                        remote_name = nm
-
-                # 对端组合标签：设备名称 + 熔丝/空开/端口编号（按用户标准）
-                remote_label = f"{remote_name}\n{remote_port}" if remote_name else f"{remote_port}"
-
-                # 使用端口样式显示组合节点，确保前端按端口类型着色与布局
-                remote_node = {
-                    "id": remote_node_id,
-                    "label": remote_label,
-                    "type": "port",
-                    "nodeType": "port",
-                    "x": remote_x,
-                    "y": port_y,
-                    "size": 16,
-                    "color": {"background": "#10b981", "border": "#065f46"},
-                    "shape": "dot",
-                    "font": {"size": 10},
-                    "device_name": remote_name,
-                    "port_name": remote_port
-                }
-                nodes.append(remote_node)
-                
-                # 根据连接类型设置颜色 - 按设计规范
-                connection_type = conn.connection_type or ""
-                if "交流" in connection_type:
-                    edge_color = "#f59e0b"  # 黄色
-                elif "直流" in connection_type:
-                    edge_color = "#ef4444"  # 红色
-                else:
-                    edge_color = "#6b7280"  # 灰色
-                
-                # 根据上下游字段控制箭头方向 - 按设计规范
-                upstream_downstream = conn.upstream_downstream or ""
-                if direction == "outgoing":
-                    # 本设备是源设备
-                    if upstream_downstream == "上游":
-                        # 本端是上游，箭头从本端指向对端
-                        arrow_from = port_node_id
-                        arrow_to = remote_node_id
-                    else:
-                        # 本端是下游，箭头从对端指向本端
-                        arrow_from = remote_node_id
-                        arrow_to = port_node_id
-                else:
-                    # 本设备是目标设备
-                    if upstream_downstream == "下游":
-                        # 本端是下游，箭头从对端指向本端
-                        arrow_from = remote_node_id
-                        arrow_to = port_node_id
-                    else:
-                        # 本端是上游，箭头从本端指向对端
-                        arrow_from = port_node_id
-                        arrow_to = remote_node_id
-                
-                # 创建连接边（严格要求对端端口存在）
-                port_to_remote_edge = {
-                    "id": f"{port_node_id}_to_{remote_node_id}",
-                    "from": arrow_from,
-                    "to": arrow_to,
-                    "width": 3,
-                    "color": {"color": edge_color},
-                    "arrows": {"to": {"enabled": True}},
-                    "label": conn.cable_model or conn.connection_type or "",
-                    "font": {"size": 10}
-                }
-                edges.append(port_to_remote_edge)
-        
-        # 5. 处理右侧端口（逻辑类似左侧）
-        for i, port_info in enumerate(right_ports):
-            conn = port_info['conn']
-            local_port = port_info['local_port']
-            remote_device_id = port_info['remote_device_id']
-            remote_port = port_info['remote_port']
-            direction = port_info['direction']
-            
-            # 获取对端设备信息
-            remote_device = db.query(Device).filter(Device.id == remote_device_id).first()
-            
-            # 右侧端口位置计算
-            port_x = 280
-            if len(right_ports) > 1:
-                total_height = (len(right_ports) - 1) * 100
-                start_y = -total_height / 2
-                port_y = start_y + i * 100
-            else:
-                port_y = 0
-            
-            # 创建端口节点
-            port_node_id = f"port_{device_id}_{local_port}_{conn.id}"
-            port_node = {
-                "id": port_node_id,
-                "label": local_port,
-                "type": "port",
-                "nodeType": "port",  # 添加nodeType字段供前端识别
-                "x": port_x,
-                "y": port_y,
-                "size": 15,
-                "color": {"background": "#10b981", "border": "#059669"},
-                "shape": "circle",
-                "font": {"size": 12}
-            }
-            nodes.append(port_node)
-            
-            # 连接中心设备到端口
-            center_to_port_edge = {
-                "id": f"center_to_{port_node_id}",
-                "from": f"device_{device_id}",
-                "to": port_node_id,
-                "width": 2,
-                "color": {"color": "#6b7280"},
-                "arrows": {"to": {"enabled": False}}
-            }
-            edges.append(center_to_port_edge)
-            
-            # 仅依赖真实对端端口生成连线；对端设备可缺失（不捏造设备名）
-            if remote_port:
-                remote_node_id = f"remote_{remote_device_id}_{remote_port}_{conn.id}"
-                remote_x = port_x + 200
-
-                remote_name = None
-                if remote_device:
-                    nm = (remote_device.name or '').strip()
-                    if nm and nm.lower() not in ('nan','none','null') and nm != '未知站点':
-                        remote_name = nm
-
-                remote_label = f"{remote_name}\n{remote_port}" if remote_name else f"{remote_port}"
-
-                remote_node = {
-                    "id": remote_node_id,
-                    "label": remote_label,
-                    "type": "port",
-                    "nodeType": "port",
-                    "x": remote_x,
-                    "y": port_y,
-                    "size": 16,
-                    "color": {"background": "#10b981", "border": "#065f46"},
-                    "shape": "dot",
-                    "font": {"size": 10},
-                    "device_name": remote_name,
-                    "port_name": remote_port
-                }
-                nodes.append(remote_node)
-                
-                # 连接类型颜色
-                connection_type = conn.connection_type or ""
-                if "交流" in connection_type:
-                    edge_color = "#f59e0b"  # 黄色
-                elif "直流" in connection_type:
-                    edge_color = "#ef4444"  # 红色
-                else:
-                    edge_color = "#6b7280"  # 灰色
-                
-                # 箭头方向控制
-                upstream_downstream = conn.upstream_downstream or ""
-                if direction == "outgoing":
-                    if upstream_downstream == "上游":
-                        arrow_from = port_node_id
-                        arrow_to = remote_node_id
-                    else:
-                        arrow_from = remote_node_id
-                        arrow_to = port_node_id
-                else:
-                    if upstream_downstream == "下游":
-                        arrow_from = remote_node_id
-                        arrow_to = port_node_id
-                    else:
-                        arrow_from = port_node_id
-                        arrow_to = remote_node_id
-                
-                # 创建连接边（严格要求对端端口存在）
-                port_to_remote_edge = {
-                    "id": f"{port_node_id}_to_{remote_node_id}",
-                    "from": arrow_from,
-                    "to": arrow_to,
-                    "width": 3,
-                    "color": {"color": edge_color},
-                    "arrows": {"to": {"enabled": True}},
-                    "label": conn.cable_model or conn.connection_type or "",
-                    "font": {"size": 10}
-                }
-                edges.append(port_to_remote_edge)
-        
-        return {"nodes": nodes, "edges": edges}
-        
+        service = PortTopologyService(db)
+        result = service.get_port_topology_data(device_id=device_id, mode=mode)
+        return JSONResponse(content=result)
+    except ValueError as e:
+        # 设备不存在等业务错误
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        print(f"端口拓扑图API调用失败: {str(e)}")
-        traceback.print_exc()
-        return {"nodes": [], "edges": []}
+        topology_error_tracker.log_error(
+            category=ErrorCategory.API_ERROR,
+            level=ErrorLevel.ERROR,
+            message=f"端口拓扑接口异常: {str(e)}",
+            context={"device_id": device_id, "mode": mode},
+            exception=e
+        )
+        raise HTTPException(status_code=500, detail="Port topology API failed")
 
-# 新增别名API：过渡命名与最终命名（指向同一实现）
-@app.get("/api/port-topology/v2/{device_id}")
-async def get_port_topology_v2(device_id: int, mode: str = "detailed", db: Session = Depends(get_db)):
-    return await get_port_topology_data(device_id, mode, db)
-
-@app.get("/api/topology/ports/{device_id}")
-async def get_topology_ports(device_id: int, mode: str = "detailed", db: Session = Depends(get_db)):
-    return await get_port_topology_data(device_id, mode, db)
-
-# 端口拓扑图数据生成函数
+# 绔彛鎷撴墤鍥炬暟鎹敓鎴愬嚱鏁?
 def generate_port_topology_data(device_id: int):
-    """生成端口拓扑图数据"""
+    """鐢熸垚绔彛鎷撴墤鍥炬暟鎹?"""
     try:
         with SessionLocal() as db:
             device = db.query(Device).filter(Device.id == device_id).first()
@@ -862,13 +557,13 @@ def generate_port_topology_data(device_id: int):
             nodes = []
             edges = []
             
-            # 获取设备的所有端口连接
+            # 鑾峰彇璁惧鐨勬墍鏈夌鍙ｈ繛鎺?
             connections = db.query(Connection).filter(
                 or_(Connection.source_device_id == device_id,
                     Connection.target_device_id == device_id)
             ).all()
             
-            # 为每个端口创建节点
+            # 涓烘瘡涓鍙ｅ垱寤鸿妭鐐?
             for conn in connections:
                 if conn.source_device_id == device_id:
                     port_info = f"{conn.source_port}"
@@ -879,7 +574,7 @@ def generate_port_topology_data(device_id: int):
                     connected_device = db.query(Device).filter(Device.id == conn.source_device_id).first()
                     connected_port = conn.source_port
                 
-                # 创建端口节点
+                # 鍒涘缓绔彛鑺傜偣
                 port_node = {
                     "id": f"port_{conn.id}",
                     "label": port_info,
@@ -892,7 +587,7 @@ def generate_port_topology_data(device_id: int):
                 }
                 nodes.append(port_node)
                 
-                # 创建连接的设备节点
+                # 鍒涘缓杩炴帴鐨勮澶囪妭鐐?
                 if connected_device:
                     device_node = {
                         "id": f"device_{connected_device.id}",
@@ -907,14 +602,14 @@ def generate_port_topology_data(device_id: int):
                     }
                     nodes.append(device_node)
                     
-                    # 创建连接边
+                    # 鍒涘缓杩炴帴杈?
                     edge = {
                         "id": f"edge_{conn.id}",
                         "from": f"port_{conn.id}",
                         "to": f"device_{connected_device.id}",
                         "width": 2,
                         "color": "#6b7280",
-                        "label": conn.cable_model or ""
+                        "label": conn.cable_model or """
                     }
                     edges.append(edge)
             
@@ -924,21 +619,21 @@ def generate_port_topology_data(device_id: int):
         topology_error_tracker.log_error(
             category=ErrorCategory.API_ERROR,
             level=ErrorLevel.ERROR,
-            message=f"端口拓扑图数据生成失败: {str(e)}",
+            message=f"绔彛鎷撴墤鍥炬暟鎹敓鎴愬け璐? {str(e)}",
             context={"device_id": device_id},
             exception=e
         )
         return {"nodes": [], "edges": []}
         
-        # 3. 按左右分区原则布局端口
+        # 3. 鎸夊乏鍙冲垎鍖哄師鍒欏竷灞€绔彛
         port_names = list(port_info.keys())
         total_ports = len(port_names)
-        left_ports = port_names[:total_ports//2 + total_ports%2]  # 左侧端口（奇数时多一个）
-        right_ports = port_names[total_ports//2 + total_ports%2:]  # 右侧端口
+        left_ports = port_names[:total_ports//2 + total_ports%2]  # 宸︿晶绔彛锛堝鏁版椂澶氫竴涓級
+        right_ports = port_names[total_ports//2 + total_ports%2:]  # 鍙充晶绔彛
         
-        # 4. 创建端口节点和连接
+        # 4. 鍒涘缓绔彛鑺傜偣鍜岃繛鎺?
         for i, port_name in enumerate(left_ports):
-            # 左侧端口
+            # 宸︿晶绔彛
             port_node_id = f"port_left_{i}"
             port_x = -200
             port_y = -100 + i * 80
@@ -956,7 +651,7 @@ def generate_port_topology_data(device_id: int):
             }
             nodes.append(port_node)
             
-            # 连接到中心设备
+            # 杩炴帴鍒颁腑蹇冭澶?
             edge_to_center = {
                 "id": f"edge_center_{port_node_id}",
                 "from": f"device_{device_id}",
@@ -966,14 +661,14 @@ def generate_port_topology_data(device_id: int):
             }
             edges.append(edge_to_center)
             
-            # 处理该端口的所有连接
+            # 澶勭悊璇ョ鍙ｇ殑鎵€鏈夎繛鎺?
             for conn_info in port_info[port_name]:
                 conn = conn_info["connection"]
                 remote_device = conn_info["remote_device"]
                 remote_port = conn_info["remote_port"]
                 
                 if remote_device:
-                    # 创建对端设备节点
+                    # 鍒涘缓瀵圭璁惧鑺傜偣
                     remote_node_id = f"remote_{remote_device.id}_{remote_port}"
                     remote_node = {
                         "id": remote_node_id,
@@ -989,14 +684,14 @@ def generate_port_topology_data(device_id: int):
                     }
                     nodes.append(remote_node)
                     
-                    # 连接线颜色根据连接类型
-                    cable_color = "#fbbf24" if conn.connection_type == "交流" else "#ef4444" if conn.connection_type == "直流" else "#6b7280"
+                    # 杩炴帴绾块鑹叉牴鎹繛鎺ョ被鍨?
+                    cable_color = "#fbbf24" if conn.connection_type == "浜ゆ祦" else "#ef4444" if conn.connection_type == "鐩存祦" else "#6b7280"
                     
-                    # 箭头方向根据上下游关系
+                    # 绠ご鏂瑰悜鏍规嵁涓婁笅娓稿叧绯?
                     arrows = {}
-                    if conn.upstream_downstream == "上游":
+                    if conn.upstream_downstream == "涓婃父":
                         arrows = {"to": {"enabled": True}} if conn_info["is_source"] else {"from": {"enabled": True}}
-                    elif conn.upstream_downstream == "下游":
+                    elif conn.upstream_downstream == "涓嬫父":
                         arrows = {"from": {"enabled": True}} if conn_info["is_source"] else {"to": {"enabled": True}}
                     
                     edge_to_remote = {
@@ -1007,12 +702,12 @@ def generate_port_topology_data(device_id: int):
                         "color": cable_color,
                         "arrows": arrows,
                         "label": conn.cable_model or "",
-                        "title": f"电缆型号: {conn.cable_model or 'N/A'}\
-备注: {conn.remark or 'N/A'}"
+                        "title": f"鐢电紗鍨嬪彿: {conn.cable_model or 'N/A'}\
+澶囨敞: {conn.remark or 'N/A'}"
                     }
                     edges.append(edge_to_remote)
         
-        # 右侧端口处理
+        # 鍙充晶绔彛澶勭悊
         for i, port_name in enumerate(right_ports):
             port_node_id = f"port_right_{i}"
             port_x = 200
@@ -1031,7 +726,7 @@ def generate_port_topology_data(device_id: int):
             }
             nodes.append(port_node)
             
-            # 连接到中心设备
+            # 杩炴帴鍒颁腑蹇冭澶?
             edge_to_center = {
                 "id": f"edge_center_{port_node_id}",
                 "from": f"device_{device_id}",
@@ -1041,14 +736,14 @@ def generate_port_topology_data(device_id: int):
             }
             edges.append(edge_to_center)
             
-            # 处理该端口的所有连接
+            # 澶勭悊璇ョ鍙ｇ殑鎵€鏈夎繛鎺?
             for conn_info in port_info[port_name]:
                 conn = conn_info["connection"]
                 remote_device = conn_info["remote_device"]
                 remote_port = conn_info["remote_port"]
                 
                 if remote_device:
-                    # 创建对端设备节点
+                    # 鍒涘缓瀵圭璁惧鑺傜偣
                     remote_node_id = f"remote_{remote_device.id}_{remote_port}"
                     remote_node = {
                         "id": remote_node_id,
@@ -1064,14 +759,14 @@ def generate_port_topology_data(device_id: int):
                     }
                     nodes.append(remote_node)
                     
-                    # 连接线颜色根据连接类型
-                    cable_color = "#fbbf24" if conn.connection_type == "交流" else "#ef4444" if conn.connection_type == "直流" else "#6b7280"
+                    # 杩炴帴绾块鑹叉牴鎹繛鎺ョ被鍨?
+                    cable_color = "#fbbf24" if conn.connection_type == "浜ゆ祦" else "#ef4444" if conn.connection_type == "鐩存祦" else "#6b7280"
                     
-                    # 箭头方向根据上下游关系
+                    # 绠ご鏂瑰悜鏍规嵁涓婁笅娓稿叧绯?
                     arrows = {}
-                    if conn.upstream_downstream == "上游":
+                    if conn.upstream_downstream == "涓婃父":
                         arrows = {"to": {"enabled": True}} if conn_info["is_source"] else {"from": {"enabled": True}}
-                    elif conn.upstream_downstream == "下游":
+                    elif conn.upstream_downstream == "涓嬫父":
                         arrows = {"from": {"enabled": True}} if conn_info["is_source"] else {"to": {"enabled": True}}
                     
                     edge_to_remote = {
@@ -1082,15 +777,15 @@ def generate_port_topology_data(device_id: int):
                         "color": cable_color,
                         "arrows": arrows,
                         "label": conn.cable_model or "",
-                        "title": f"电缆型号: {conn.cable_model or 'N/A'}\
-备注: {conn.remark or 'N/A'}"
+                        "title": f"鐢电紗鍨嬪彿: {conn.cable_model or 'N/A'}\
+澶囨敞: {conn.remark or 'N/A'}"
                     }
                     edges.append(edge_to_remote)
         
         topology_error_tracker.log_error(
             category=ErrorCategory.API_SUCCESS,
             level=ErrorLevel.INFO,
-            message=f"端口拓扑图数据生成成功",
+            message=f"绔彛鎷撴墤鍥炬暟鎹敓鎴愭垚鍔?,
             context={
                 "device_id": device_id,
                 "device_name": device.name,
@@ -1106,15 +801,15 @@ def generate_port_topology_data(device_id: int):
         topology_error_tracker.log_error(
             category=ErrorCategory.API_ERROR,
             level=ErrorLevel.ERROR,
-            message=f"端口拓扑图API调用失败: {str(e)}",
+            message=f"绔彛鎷撴墤鍥続PI璋冪敤澶辫触: {str(e)}",
             context={"device_id": device_id},
             exception=e
         )
         return {"nodes": [], "edges": []}
 
-# 端口拓扑图数据生成函数
+# 绔彛鎷撴墤鍥炬暟鎹敓鎴愬嚱鏁?
 def generate_port_topology_data(device_id: int):
-    """生成端口拓扑图数据"""
+    """鐢熸垚绔彛鎷撴墤鍥炬暟鎹?"""
     try:
         with SessionLocal() as db:
             device = db.query(Device).filter(Device.id == device_id).first()
@@ -1124,13 +819,13 @@ def generate_port_topology_data(device_id: int):
             nodes = []
             edges = []
             
-            # 获取设备的所有端口连接
+            # 鑾峰彇璁惧鐨勬墍鏈夌鍙ｈ繛鎺?
             connections = db.query(Connection).filter(
                 or_(Connection.source_device_id == device_id,
                     Connection.target_device_id == device_id)
             ).all()
             
-            # 为每个端口创建节点
+            # 涓烘瘡涓鍙ｅ垱寤鸿妭鐐?
             for conn in connections:
                 if conn.source_device_id == device_id:
                     port_info = f"{conn.source_port}"
@@ -1141,7 +836,7 @@ def generate_port_topology_data(device_id: int):
                     connected_device = db.query(Device).filter(Device.id == conn.source_device_id).first()
                     connected_port = conn.source_port
                 
-                # 创建端口节点
+                # 鍒涘缓绔彛鑺傜偣
                 port_node = {
                     "id": f"port_{conn.id}",
                     "label": port_info,
@@ -1154,7 +849,7 @@ def generate_port_topology_data(device_id: int):
                 }
                 nodes.append(port_node)
                 
-                # 创建连接的设备节点
+                # 鍒涘缓杩炴帴鐨勮澶囪妭鐐?
                 if connected_device:
                     device_node = {
                         "id": f"device_{connected_device.id}",
@@ -1169,14 +864,14 @@ def generate_port_topology_data(device_id: int):
                     }
                     nodes.append(device_node)
                     
-                    # 创建连接边
+                    # 鍒涘缓杩炴帴杈?
                     edge = {
                         "id": f"edge_{conn.id}",
                         "from": f"port_{conn.id}",
                         "to": f"device_{connected_device.id}",
                         "width": 2,
                         "color": "#6b7280",
-                        "label": conn.cable_model or ""
+                        "label": conn.cable_model or """
                     }
                     edges.append(edge)
             
@@ -1186,20 +881,20 @@ def generate_port_topology_data(device_id: int):
         topology_error_tracker.log_error(
             category=ErrorCategory.API_ERROR,
             level=ErrorLevel.ERROR,
-            message=f"端口拓扑图数据生成失败: {str(e)}",
+            message=f"绔彛鎷撴墤鍥炬暟鎹敓鎴愬け璐? {str(e)}",
             context={"device_id": device_id},
             exception=e
         )
         return {"nodes": [], "edges": []}
 
-        # 添加连接边
+        # 娣诲姞杩炴帴杈?
         for conn in topology_data.get("connections", []):
             edge = {
                 "id": conn["id"],
                 "from": conn["from_port_id"],
                 "to": conn["to_port_id"],
                 "label": conn.get("connection_type", ""),
-                "title": "连接类型: " + str(conn.get('connection_type', 'Unknown')) + ", 带宽: " + str(conn.get('bandwidth', 'N/A')),
+                "title": "杩炴帴绫诲瀷: " + str(conn.get('connection_type', 'Unknown')) + ", 甯﹀: " + str(conn.get('bandwidth', 'N/A')),
                 "color": get_connection_edge_color(conn.get("status", "active")),
                 "width": 2,
                 "connectionData": conn
@@ -1213,12 +908,12 @@ def generate_port_topology_data(device_id: int):
             "device": topology_data.get("device", {})
         }
     except HTTPException as e:
-        logger.error(f"HTTP异常: {e.detail}")
+        logger.error(f"HTTP寮傚父: {e.detail}")
         raise e
     except Exception as e:
-        logger.error(f"获取端口拓扑图数据时出错: {str(e)}")
+        logger.error(f"鑾峰彇绔彛鎷撴墤鍥炬暟鎹椂鍑洪敊: {str(e)}")
         traceback.print_exc()
-        # 返回标准格式的空数据，避免前端解析失败
+        # 杩斿洖鏍囧噯鏍煎紡鐨勭┖鏁版嵁锛岄伩鍏嶅墠绔В鏋愬け璐?
         return JSONResponse(content={"nodes": [], "edges": []}, status_code=500)
 
         station_utilization.sort(key=lambda x: x["idle_rate"], reverse=True)
@@ -1228,36 +923,36 @@ def generate_port_topology_data(device_id: int):
         """Check idle rate alerts"""
         alerts = []
         
-        # 检查总体空闲率
+        # 妫€鏌ユ€讳綋绌洪棽鐜?
         overall_idle = self._calculate_overall_idle_rate()
-        if overall_idle["idle_rate"] < 10:  # 空闲率低于10%预警
+        if overall_idle["idle_rate"] < 10:  # 绌洪棽鐜囦綆浜?0%棰勮
             alerts.append({
                 "type": "overall",
                 "level": "warning",
-                "message": f"系统总体空闲率仅为 {overall_idle['idle_rate']}%，资源紧张",
+                "message": f"绯荤粺鎬讳綋绌洪棽鐜囦粎涓?{overall_idle['idle_rate']}%锛岃祫婧愮揣寮?,
                 "idle_rate": overall_idle["idle_rate"]
             })
         
-        # 检查设备类型空闲率
+        # 妫€鏌ヨ澶囩被鍨嬬┖闂茬巼
         device_type_idle = self._calculate_device_type_idle_rate()
         for item in device_type_idle:
-            if item["idle_rate"] < 5:  # 设备类型空闲率低于5%预警
+            if item["idle_rate"] < 5:  # 璁惧绫诲瀷绌洪棽鐜囦綆浜?%棰勮
                 alerts.append({
                     "type": "device_type",
                     "level": "critical",
-                    "message": f"{item['device_type']} 类型设备空闲率仅为 {item['idle_rate']}%，急需扩容",
+                    "message": f"{item['device_type']} 绫诲瀷璁惧绌洪棽鐜囦粎涓?{item['idle_rate']}%锛屾€ラ渶鎵╁",
                     "device_type": item["device_type"],
                     "idle_rate": item["idle_rate"]
                 })
         
-        # 检查站点空闲率
+        # 妫€鏌ョ珯鐐圭┖闂茬巼
         station_idle = self._calculate_station_idle_rate()
         for item in station_idle:
-            if item["idle_rate"] < 5:  # 站点空闲率低于5%预警
+            if item["idle_rate"] < 5:  # 绔欑偣绌洪棽鐜囦綆浜?%棰勮
                 alerts.append({
                     "type": "station",
                     "level": "critical",
-                    "message": f"{item['station']} 站点空闲率仅为 {item['idle_rate']}%，急需扩容",
+                    "message": f"{item['station']} 绔欑偣绌洪棽鐜囦粎涓?{item['idle_rate']}%锛屾€ラ渶鎵╁",
                     "station": item["station"],
                     "idle_rate": item["idle_rate"]
                 })
@@ -1269,14 +964,14 @@ def generate_port_topology_data(device_id: int):
     def _calculate_port_capacity_distribution(self) -> dict:
         """Calculate port capacity distribution"""
         try:
-            # 统计不同规格端口的使用分布
+            # 缁熻涓嶅悓瑙勬牸绔彛鐨勪娇鐢ㄥ垎甯?
             connections = self.db.query(Connection).all()
             
             fuse_specs = {}
             breaker_specs = {}
             
             for conn in connections:
-                # 统计熔断器规格分布
+                # 缁熻鐔旀柇鍣ㄨ鏍煎垎甯?
                 if conn.source_fuse_spec:
                     spec = conn.source_fuse_spec
                     if spec not in fuse_specs:
@@ -1293,7 +988,7 @@ def generate_port_topology_data(device_id: int):
                     if conn.connection_type and conn.connection_type.strip():
                         fuse_specs[spec]["connected"] += 1
                 
-                # 统计空开规格分布
+                # 缁熻绌哄紑瑙勬牸鍒嗗竷
                 if conn.source_breaker_spec:
                     spec = conn.source_breaker_spec
                     if spec not in breaker_specs:
@@ -1310,7 +1005,7 @@ def generate_port_topology_data(device_id: int):
                     if conn.connection_type and conn.connection_type.strip():
                         breaker_specs[spec]["connected"] += 1
             
-            # 计算各规格的使用率
+            # 璁＄畻鍚勮鏍肩殑浣跨敤鐜?
             for spec_data in fuse_specs.values():
                 spec_data["utilization_rate"] = round(
                     (spec_data["connected"] / spec_data["total"] * 100) if spec_data["total"] > 0 else 0, 2
@@ -1327,16 +1022,16 @@ def generate_port_topology_data(device_id: int):
             }
             
         except Exception as e:
-            print(f"计算端口容量分布时出错: {e}")
+            print(f"璁＄畻绔彛瀹归噺鍒嗗竷鏃跺嚭閿? {e}")
             return {
                 "fuse_specifications": {},
                 "breaker_specifications": {}
             }
     
     def _calculate_load_balance_analysis(self) -> dict:
-        """计算负载均衡分析"""
+        """璁＄畻璐熻浇鍧囪　鍒嗘瀽"""
         try:
-            # 获取所有设备的使用率
+            # 鑾峰彇鎵€鏈夎澶囩殑浣跨敤鐜?
             devices = self.db.query(Device).all()
             device_utilizations = []
             
@@ -1345,8 +1040,8 @@ def generate_port_topology_data(device_id: int):
                 device_utilizations.append({
                     "device_id": device.id,
                     "device_name": device.name,
-                    "device_type": device.device_type or "未知",
-                    "station": device.station or "未知",
+                    "device_type": device.device_type or "鏈煡",
+                    "station": device.station or "鏈煡",
                     "utilization_rate": utilization_rate
                 })
             
@@ -1359,15 +1054,15 @@ def generate_port_topology_data(device_id: int):
                     "underutilized_devices": []
                 }
             
-            # 计算平均使用率和方差
+            # 璁＄畻骞冲潎浣跨敤鐜囧拰鏂瑰樊
             utilization_rates = [d["utilization_rate"] for d in device_utilizations]
             average_utilization = sum(utilization_rates) / len(utilization_rates)
             variance = sum((rate - average_utilization) ** 2 for rate in utilization_rates) / len(utilization_rates)
             
-            # 负载均衡评分（方差越小，均衡性越好）
-            balance_score = max(0, 100 - variance)  # 简化的评分算法
+            # 璐熻浇鍧囪　璇勫垎锛堟柟宸秺灏忥紝鍧囪　鎬ц秺濂斤級
+            balance_score = max(0, 100 - variance)  # 绠€鍖栫殑璇勫垎绠楁硶
             
-            # 识别过载和低利用率设备
+            # 璇嗗埆杩囪浇鍜屼綆鍒╃敤鐜囪澶?
             overloaded_devices = [d for d in device_utilizations if d["utilization_rate"] > 90]
             underutilized_devices = [d for d in device_utilizations if d["utilization_rate"] < 20]
             
@@ -1380,7 +1075,7 @@ def generate_port_topology_data(device_id: int):
             }
             
         except Exception as e:
-            print(f"计算负载均衡分析时出错: {e}")
+            print(f"璁＄畻璐熻浇鍧囪　鍒嗘瀽鏃跺嚭閿? {e}")
             return {
                 "balance_score": 0,
                 "average_utilization": 0,
@@ -1390,7 +1085,7 @@ def generate_port_topology_data(device_id: int):
             }
     
     def _get_top_utilized_devices(self, limit: int = 10) -> list:
-        """获取使用率最高的设备"""
+        """鑾峰彇浣跨敤鐜囨渶楂樼殑璁惧"""
         try:
             devices = self.db.query(Device).all()
             device_utilizations = []
@@ -1400,23 +1095,23 @@ def generate_port_topology_data(device_id: int):
                 device_utilizations.append({
                     "device_id": device.id,
                     "device_name": device.name,
-                    "device_type": device.device_type or "未知",
-                    "station": device.station or "未知",
+                    "device_type": device.device_type or "鏈煡",
+                    "station": device.station or "鏈煡",
                     "utilization_rate": utilization_rate
                 })
             
-            # 按使用率降序排序并返回前N个
+            # 鎸変娇鐢ㄧ巼闄嶅簭鎺掑簭骞惰繑鍥炲墠N涓?
             device_utilizations.sort(key=lambda x: x["utilization_rate"], reverse=True)
             return device_utilizations[:limit]
             
         except Exception as e:
-            print(f"获取使用率最高设备时出错: {e}")
+            print(f"鑾峰彇浣跨敤鐜囨渶楂樿澶囨椂鍑洪敊: {e}")
             return []
     
     def _get_device_utilization_rate(self, device_id: int) -> float:
-        """获取单个设备的使用率"""
+        """鑾峰彇鍗曚釜璁惧鐨勪娇鐢ㄧ巼"""
         try:
-            # 获取设备的所有端口
+            # 鑾峰彇璁惧鐨勬墍鏈夌鍙?
             connections = self.db.query(Connection).filter(
                 (Connection.source_device_id == device_id) |
                 (Connection.target_device_id == device_id)
@@ -1456,24 +1151,24 @@ def generate_port_topology_data(device_id: int):
             return (connected_count / total_ports * 100) if total_ports > 0 else 0
             
         except Exception as e:
-            print(f"获取设备 {device_id} 使用率时出错: {e}")
+            print(f"鑾峰彇璁惧 {device_id} 浣跨敤鐜囨椂鍑洪敊: {e}")
             return 0
     
 
     
     def get_port_statistics(self) -> dict:
-        """获取全局端口统计信息"""
+        """鑾峰彇鍏ㄥ眬绔彛缁熻淇℃伅"""
         try:
-            # 1. 设备端口总览
+            # 1. 璁惧绔彛鎬昏
             device_port_summary = self._get_device_port_summary()
             
-            # 2. 端口类型统计
+            # 2. 绔彛绫诲瀷缁熻
             port_type_statistics = self._get_port_type_statistics()
             
-            # 3. 容量统计
+            # 3. 瀹归噺缁熻
             capacity_statistics = self._get_capacity_statistics()
             
-            # 4. 设备端口详情
+            # 4. 璁惧绔彛璇︽儏
             device_port_details = self._get_device_port_details()
             
             return {
@@ -1483,50 +1178,50 @@ def generate_port_topology_data(device_id: int):
                 "device_port_details": device_port_details
             }
         except Exception as e:
-            print(f"获取端口统计信息时出错: {e}")
-            raise HTTPException(status_code=500, detail=f"获取端口统计信息失败: {str(e)}")
+            print(f"鑾峰彇绔彛缁熻淇℃伅鏃跺嚭閿? {e}")
+            raise HTTPException(status_code=500, detail=f"鑾峰彇绔彛缁熻淇℃伅澶辫触: {str(e)}")
     
     def _get_device_port_summary(self) -> dict:
-        """获取设备端口总览 - 采用集合统计逻辑，统计所有有连接的端口"""
+        """鑾峰彇璁惧绔彛鎬昏 - 閲囩敤闆嗗悎缁熻閫昏緫锛岀粺璁℃墍鏈夋湁杩炴帴鐨勭鍙?"""
         try:
-            # 统计总设备数
+            # 缁熻鎬昏澶囨暟
             total_devices = self.db.query(Device).count()
             
-            # 使用集合来避免重复计算同一个端口
+            # 浣跨敤闆嗗悎鏉ラ伩鍏嶉噸澶嶈绠楀悓涓€涓鍙?
             all_ports = set()
             connected_ports = set()
             
-            # 获取所有连接记录
+            # 鑾峰彇鎵€鏈夎繛鎺ヨ褰?
             connections = self.db.query(Connection).all()
             
             for conn in connections:
-                # 统计源端口（A端）
+                # 缁熻婧愮鍙ｏ紙A绔級
                 if conn.source_fuse_number and conn.source_device_id:
                     port_key = f"device_{conn.source_device_id}_fuse_{conn.source_fuse_number}"
                     all_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                     if conn.connection_type and conn.connection_type.strip():
                         connected_ports.add(port_key)
                         
                 if conn.source_breaker_number and conn.source_device_id:
                     port_key = f"device_{conn.source_device_id}_breaker_{conn.source_breaker_number}"
                     all_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                     if conn.connection_type and conn.connection_type.strip():
                         connected_ports.add(port_key)
                 
-                # 统计目标端口（B端）- 符合设计文档中"一个连接占用两个端口"的要求
+                # 缁熻鐩爣绔彛锛圔绔級- 绗﹀悎璁捐鏂囨。涓?涓€涓繛鎺ュ崰鐢ㄤ袱涓鍙?鐨勮姹?
                 if conn.target_fuse_number and conn.target_device_id:
                     port_key = f"device_{conn.target_device_id}_fuse_{conn.target_fuse_number}"
                     all_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                     if conn.connection_type and conn.connection_type.strip():
                         connected_ports.add(port_key)
                         
                 if conn.target_breaker_number and conn.target_device_id:
                     port_key = f"device_{conn.target_device_id}_breaker_{conn.target_breaker_number}"
                     all_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                     if conn.connection_type and conn.connection_type.strip():
                         connected_ports.add(port_key)
             
@@ -1543,7 +1238,7 @@ def generate_port_topology_data(device_id: int):
                 "utilization_rate": round(utilization_rate, 2)
             }
         except Exception as e:
-            print(f"获取设备端口总览时出错: {e}")
+            print(f"鑾峰彇璁惧绔彛鎬昏鏃跺嚭閿? {e}")
             return {
                 "total_devices": 0,
                 "total_ports": 0,
@@ -1553,30 +1248,30 @@ def generate_port_topology_data(device_id: int):
             }
     
     def _get_port_type_statistics(self) -> dict:
-        """获取端口类型统计 - 基于A端设备统计"""
+        """鑾峰彇绔彛绫诲瀷缁熻 - 鍩轰簬A绔澶囩粺璁?"""
         try:
-            # 获取所有连接记录
+            # 鑾峰彇鎵€鏈夎繛鎺ヨ褰?
             connections = self.db.query(Connection).all()
             
-            # 使用集合来避免重复计算端口
+            # 浣跨敤闆嗗悎鏉ラ伩鍏嶉噸澶嶈绠楃鍙?
             fuse_ports = set()
             breaker_ports = set()
             connected_fuse_ports = set()
             connected_breaker_ports = set()
             
             for conn in connections:
-                # 只统计A端（源端）设备的端口
+                # 鍙粺璁绔紙婧愮锛夎澶囩殑绔彛
                 if conn.source_fuse_number and conn.source_device_id:
                     port_key = f"{conn.source_device_id}_fuse_{conn.source_fuse_number}"
                     fuse_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                     if conn.connection_type and conn.connection_type.strip():
                         connected_fuse_ports.add(port_key)
                 
                 if conn.source_breaker_number and conn.source_device_id:
                     port_key = f"{conn.source_device_id}_breaker_{conn.source_breaker_number}"
                     breaker_ports.add(port_key)
-                    # 通过连接类型字段是否为空判断端口使用状态
+                    # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                     if conn.connection_type and conn.connection_type.strip():
                         connected_breaker_ports.add(port_key)
             
@@ -1600,40 +1295,40 @@ def generate_port_topology_data(device_id: int):
                 }
             }
         except Exception as e:
-            print(f"获取端口类型统计时出错: {e}")
+            print(f"鑾峰彇绔彛绫诲瀷缁熻鏃跺嚭閿? {e}")
             return {
                 "fuse_ports": {"total": 0, "connected": 0, "idle": 0, "utilization_rate": 0},
                 "breaker_ports": {"total": 0, "connected": 0, "idle": 0, "utilization_rate": 0}
             }
     
     def _get_capacity_statistics(self) -> dict:
-        """获取容量统计"""
+        """鑾峰彇瀹归噺缁熻"""
         try:
-            # 获取所有连接的规格信息
+            # 鑾峰彇鎵€鏈夎繛鎺ョ殑瑙勬牸淇℃伅
             connections = self.db.query(Connection).all()
             
             capacity_stats = {}
             high_capacity_available = {"630A_above": 0, "400A_above": 0, "250A_above": 0}
             
             for conn in connections:
-                # 处理各种规格字段
+                # 澶勭悊鍚勭瑙勬牸瀛楁
                 for spec_field in [conn.source_fuse_spec, conn.source_breaker_spec, 
                                  conn.target_fuse_spec, conn.target_breaker_spec]:
                     if spec_field:
                         rating = self._extract_rating_from_spec(spec_field)
-                        if rating and rating != "未知":
+                        if rating and rating != "鏈煡":
                             if rating not in capacity_stats:
                                 capacity_stats[rating] = {"total": 0, "connected": 0, "idle": 0}
                             
                             capacity_stats[rating]["total"] += 1
                             
-                            # 判断是否已连接
+                            # 鍒ゆ柇鏄惁宸茶繛鎺?
                             if conn.source_device_id and conn.target_device_id:
                                 capacity_stats[rating]["connected"] += 1
                             else:
                                 capacity_stats[rating]["idle"] += 1
                                 
-                                # 统计大容量可用端口
+                                # 缁熻澶у閲忓彲鐢ㄧ鍙?
                                 try:
                                     rating_value = int(rating.replace('A', ''))
                                     if rating_value >= 630:
@@ -1643,46 +1338,46 @@ def generate_port_topology_data(device_id: int):
                                     if rating_value >= 250:
                                         high_capacity_available["250A_above"] += 1
                                 except ValueError:
-                                    pass  # 忽略无法转换的容量值
+                                    pass  # 蹇界暐鏃犳硶杞崲鐨勫閲忓€?
             
             return {
                 "by_rating": capacity_stats,
                 "high_capacity_available": high_capacity_available
             }
         except Exception as e:
-            print(f"获取容量统计时出错: {e}")
+            print(f"鑾峰彇瀹归噺缁熻鏃跺嚭閿? {e}")
             return {
                 "by_rating": {},
                 "high_capacity_available": {"630A_above": 0, "400A_above": 0, "250A_above": 0}
             }
     
     def _get_device_port_details(self) -> list:
-        """获取设备端口详情 - 基于A端设备统计"""
+        """鑾峰彇璁惧绔彛璇︽儏 - 鍩轰簬A绔澶囩粺璁?"""
         try:
-            # 获取所有设备及其端口使用情况
+            # 鑾峰彇鎵€鏈夎澶囧強鍏剁鍙ｄ娇鐢ㄦ儏鍐?
             devices = self.db.query(Device).all()
 
             device_details = []
             
             for device in devices:
-                # 只统计该设备作为A端（源端）的连接记录
+                # 鍙粺璁¤璁惧浣滀负A绔紙婧愮锛夌殑杩炴帴璁板綍
                 device_connections = self.db.query(Connection).filter(
                     Connection.source_device_id == device.id
                 ).all()
 
-                # 使用集合来避免重复计算端口
+                # 浣跨敤闆嗗悎鏉ラ伩鍏嶉噸澶嶈绠楃鍙?
                 all_ports = set()
                 connected_ports_set = set()
                 fuse_ports = set()
                 breaker_ports = set()
                 
                 for conn in device_connections:
-                    # 只统计该设备作为A端的端口
+                    # 鍙粺璁¤璁惧浣滀负A绔殑绔彛
                     if conn.source_fuse_number:
                         port_key = f"fuse_{conn.source_fuse_number}"
                         all_ports.add(port_key)
                         fuse_ports.add(port_key)
-                        # 通过连接类型字段是否为空判断端口使用状态
+                        # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                         if conn.connection_type and conn.connection_type.strip():
                             connected_ports_set.add(port_key)
 
@@ -1690,7 +1385,7 @@ def generate_port_topology_data(device_id: int):
                         port_key = f"breaker_{conn.source_breaker_number}"
                         all_ports.add(port_key)
                         breaker_ports.add(port_key)
-                        # 通过连接类型字段是否为空判断端口使用状态
+                        # 閫氳繃杩炴帴绫诲瀷瀛楁鏄惁涓虹┖鍒ゆ柇绔彛浣跨敤鐘舵€?
                         if conn.connection_type and conn.connection_type.strip():
                             connected_ports_set.add(port_key)
 
@@ -1704,8 +1399,8 @@ def generate_port_topology_data(device_id: int):
                 device_details.append({
                     "device_id": device.id,
                     "device_name": device.name,
-                    "device_type": device.device_type or "未知",
-                    "station": device.station or "未知",
+                    "device_type": device.device_type or "鏈煡",
+                    "station": device.station or "鏈煡",
                     "total_ports": total_ports,
                     "connected_ports": connected_ports,
                     "idle_ports": idle_ports,
@@ -1714,161 +1409,159 @@ def generate_port_topology_data(device_id: int):
                     "breaker_ports": len(breaker_ports)
                 })
             
-            # 按利用率降序排序
+            # 鎸夊埄鐢ㄧ巼闄嶅簭鎺掑簭
             device_details.sort(key=lambda x: x["utilization_rate"], reverse=True)
             
             return device_details
         except Exception as e:
-            print(f"获取设备端口详情时出错: {e}")
+            print(f"鑾峰彇璁惧绔彛璇︽儏鏃跺嚭閿? {e}")
             return []
     
     def _extract_rating_from_spec(self, spec_string: str) -> str:
-        """从规格字符串中提取电流等级"""
+        """浠庤鏍煎瓧绗︿覆涓彁鍙栫數娴佺瓑绾?"""
         if not spec_string:
-            return "未知"
+            return "鏈煡"
         
         try:
-            # 匹配括号内的电流值，如 "NT4(500A)" -> "500A"
+            # 鍖归厤鎷彿鍐呯殑鐢垫祦鍊硷紝濡?"NT4(500A)" -> "500A"
             match = re.search(r'\((\d+)A\)', spec_string)
             if match:
                 return f"{match.group(1)}A"
             
-            # 匹配直接的电流值，如 "500A" -> "500A"
+            # 鍖归厤鐩存帴鐨勭數娴佸€硷紝濡?"500A" -> "500A"
             match = re.search(r'(\d+)A', spec_string)
             if match:
                 return f"{match.group(1)}A"
             
-            return "未知"
+            return "鏈煡"
         except Exception as e:
-            print(f"提取电流等级时出错: {e}")
-            return "未知"
+            print(f"鎻愬彇鐢垫祦绛夌骇鏃跺嚭閿? {e}")
+            return "鏈煡"
     
 
 
 
 def verify_admin_password(password: str) -> bool:
     """
-    验证管理员密码
+    楠岃瘉绠＄悊鍛樺瘑鐮?
     Args:
-        password: 用户输入的密码
+        password: 鐢ㄦ埛杈撳叆鐨勫瘑鐮?
     Returns:
-        bool: 密码是否正确
+        bool: 瀵嗙爜鏄惁姝ｇ‘
     """
     return password == ADMIN_PASSWORD
 
-# --- FastAPI 应用设置 ---
+# --- FastAPI 搴旂敤璁剧疆 ---
 
 
-# 挂载静态文件目录
+# 鎸傝浇闈欐€佹枃浠剁洰褰?
+# 鎸傝浇闈欐€佹枃浠剁洰褰?
 app.mount("/static", StaticFiles(directory="static"), name="static")
-# 设置模板目录
+# 鎸傝浇涓存椂鐩綍浠ヤ緵鍔犺浇鏈湴fixture
+app.mount("/temp", StaticFiles(directory="temp"), name="temp")
+# 璁剧疆妯℃澘鐩綍
 templates = Jinja2Templates(directory="templates")
 
-# 新拓扑页面路由（隔离旧脚本，仅返回模板）
-@app.get("/topology", response_class=HTMLResponse)
-async def topology(request: Request):
-    return templates.TemplateResponse("topology.html", {"request": request})
-
-# --- 数据库会话管理 ---
+# --- 鏁版嵁搴撲細璇濈鐞?---
 
 def get_db():
     """
-    数据库会话管理函数
-    增加了详细的日志记录来跟踪数据库连接的创建和关闭过程
+    鏁版嵁搴撲細璇濈鐞嗗嚱鏁?
+    澧炲姞浜嗚缁嗙殑鏃ュ織璁板綍鏉ヨ窡韪暟鎹簱杩炴帴鐨勫垱寤哄拰鍏抽棴杩囩▼
     """
-    print("\n--- 创建数据库会话 ---")
+    print("\n--- 鍒涘缓鏁版嵁搴撲細璇?---")
     db = None
     try:
         db = SessionLocal()
-        print(f"数据库会话创建成功: {id(db)}")
+        print(f"鏁版嵁搴撲細璇濆垱寤烘垚鍔? {id(db)}")
         yield db
     except Exception as e:
-        print(f"数据库会话创建失败: {e}")
+        print(f"鏁版嵁搴撲細璇濆垱寤哄け璐? {e}")
         if db:
-            print("正在回滚数据库事务...")
+            print("姝ｅ湪鍥炴粴鏁版嵁搴撲簨鍔?..")
             db.rollback()
         raise
     finally:
         if db:
-            print(f"正在关闭数据库会话: {id(db)}")
+            print(f"姝ｅ湪鍏抽棴鏁版嵁搴撲細璇? {id(db)}")
             db.close()
-            print("数据库会话已关闭")
-        print("--- 数据库会话管理结束 ---\n")
+            print("鏁版嵁搴撲細璇濆凡鍏抽棴")
+        print("--- 鏁版嵁搴撲細璇濈鐞嗙粨鏉?---\n")
 
-# --- 应用启动事件 ---
+# --- 搴旂敤鍚姩浜嬩欢 ---
 
 @app.on_event("startup")
 def on_startup():
     """
-    应用启动事件处理函数
-    增加了详细的日志记录来跟踪应用启动过程
+    搴旂敤鍚姩浜嬩欢澶勭悊鍑芥暟
+    澧炲姞浜嗚缁嗙殑鏃ュ織璁板綍鏉ヨ窡韪簲鐢ㄥ惎鍔ㄨ繃绋?
     """
     print("\n" + "=" * 60)
-    print("🚀 动力资源资产管理系统启动中...")
+    print("馃殌 鍔ㄥ姏璧勬簮璧勪骇绠＄悊绯荤粺鍚姩涓?..")
     print("=" * 60)
     
     try:
-        # 检查并创建数据库目录
+        # 妫€鏌ュ苟鍒涘缓鏁版嵁搴撶洰褰?
         db_dir = './database'
         if not os.path.exists(db_dir):
-            print(f"📁 创建数据库目录: {db_dir}")
+            print(f"馃搧 鍒涘缓鏁版嵁搴撶洰褰? {db_dir}")
             os.makedirs(db_dir)
         else:
-            print(f"📁 数据库目录已存在: {db_dir}")
+            print(f"馃搧 鏁版嵁搴撶洰褰曞凡瀛樺湪: {db_dir}")
         
-        # 初始化数据库
-        print("🗄️ 正在初始化数据库...")
+        # 鍒濆鍖栨暟鎹簱
+        print("馃梽锔?姝ｅ湪鍒濆鍖栨暟鎹簱...")
         create_db_and_tables()
         
-        print("✅ 应用启动完成！")
-        print(f"🌐 服务器地址: http://localhost:{PORT}")
+        print("鉁?搴旂敤鍚姩瀹屾垚锛?)
+        print(f"馃寪 鏈嶅姟鍣ㄥ湴鍧€: http://localhost:{PORT}")
         print("=" * 60 + "\n")
         
     except Exception as e:
-        print(f"\n❌ 应用启动失败!")
-        print(f"错误类型: {type(e).__name__}")
-        print(f"错误信息: {e}")
-        print("\n完整错误堆栈:")
+        print(f"\n鉂?搴旂敤鍚姩澶辫触!")
+        print(f"閿欒绫诲瀷: {type(e).__name__}")
+        print(f"閿欒淇℃伅: {e}")
+        print("\n瀹屾暣閿欒鍫嗘爤:")
         traceback.print_exc()
         print("=" * 60)
-        raise  # 重新抛出异常，停止应用启动
+        raise  # 閲嶆柊鎶涘嚭寮傚父锛屽仠姝㈠簲鐢ㄥ惎鍔?
 
-# --- 路由和视图函数 ---
+# --- 璺敱鍜岃鍥惧嚱鏁?---
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, db: Session = Depends(get_db)):
     """
-    首页路由 - 显示所有设备列表
-    增加了详细的日志记录来跟踪数据获取过程
+    棣栭〉璺敱 - 鏄剧ず鎵€鏈夎澶囧垪琛?
+    澧炲姞浜嗚缁嗙殑鏃ュ織璁板綍鏉ヨ窡韪暟鎹幏鍙栬繃绋?
     """
-    print("\n=== 首页数据获取开始 ===")
+    print("\n=== 棣栭〉鏁版嵁鑾峰彇寮€濮?===")
     
     try:
-        # 获取设备数据
-        print("正在从数据库查询设备数据...")
+        # 鑾峰彇璁惧鏁版嵁
+        print("姝ｅ湪浠庢暟鎹簱鏌ヨ璁惧鏁版嵁...")
         devices = db.query(Device).order_by(Device.id).all()
         device_count = len(devices)
-        print(f"查询到 {device_count} 个设备")
+        print(f"鏌ヨ鍒?{device_count} 涓澶?)
         
-        # 获取生命周期规则
+        # 鑾峰彇鐢熷懡鍛ㄦ湡瑙勫垯
         lifecycle_rules = db.query(LifecycleRule).filter(LifecycleRule.is_active == 'true').all()
         rules_dict = {rule.device_type: rule for rule in lifecycle_rules}
-        print(f"加载了 {len(rules_dict)} 个生命周期规则")
+        print(f"鍔犺浇浜?{len(rules_dict)} 涓敓鍛藉懆鏈熻鍒?)
         
-        # 为每个设备计算生命周期状态
+        # 涓烘瘡涓澶囪绠楃敓鍛藉懆鏈熺姸鎬?
         for device in devices:
             lifecycle_status = "unknown"
-            lifecycle_status_text = "未配置规则"
+            lifecycle_status_text = "鏈厤缃鍒?
             
             if device.device_type and device.device_type in rules_dict:
                 rule = rules_dict[device.device_type]
                 if device.commission_date:
                     try:
-                        # 解析投产日期
+                        # 瑙ｆ瀽鎶曚骇鏃ユ湡
                         commission_date = None
                         date_str = str(device.commission_date).strip()
                         
-                        # 处理特殊格式：YYYYMM (如 202312)
+                        # 澶勭悊鐗规畩鏍煎紡锛歒YYYMM (濡?202312)
                         if re.match(r'^\d{6}$', date_str):
                             try:
                                 year = int(date_str[:4])
@@ -1877,12 +1570,12 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
                             except ValueError:
                                 pass
                         
-                        # 如果特殊格式解析失败，尝试标准格式
+                        # 濡傛灉鐗规畩鏍煎紡瑙ｆ瀽澶辫触锛屽皾璇曟爣鍑嗘牸寮?
                         if not commission_date:
                             date_formats = [
                                 "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d",
                                 "%Y-%m", "%Y/%m", "%Y.%m",
-                                "%Y年%m月%d日", "%Y年%m月"
+                                "%Y骞?m鏈?d鏃?, "%Y骞?m鏈?
                             ]
                             
                             for fmt in date_formats:
@@ -1893,81 +1586,81 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
                                     continue
                         
                         if commission_date:
-                            # 计算服役时间
+                            # 璁＄畻鏈嶅焦鏃堕棿
                             today = datetime.now()
                             service_years = (today - commission_date).days / 365.25
                             
-                            # 判断状态
+                            # 鍒ゆ柇鐘舵€?
                             if service_years >= rule.lifecycle_years:
                                 lifecycle_status = "expired"
-                                lifecycle_status_text = "已超期"
+                                lifecycle_status_text = "宸茶秴鏈?
                             elif service_years >= (rule.lifecycle_years - rule.warning_months / 12):
                                 lifecycle_status = "warning"
-                                lifecycle_status_text = "临近超限"
+                                lifecycle_status_text = "涓磋繎瓒呴檺"
                             else:
                                 lifecycle_status = "normal"
-                                lifecycle_status_text = "正常"
+                                lifecycle_status_text = "姝ｅ父"
                         else:
                             lifecycle_status = "unknown"
-                            lifecycle_status_text = "投产日期格式无法识别"
+                            lifecycle_status_text = "鎶曚骇鏃ユ湡鏍煎紡鏃犳硶璇嗗埆"
                     except Exception as e:
                         lifecycle_status = "unknown"
-                        lifecycle_status_text = "投产日期格式无法识别"
+                        lifecycle_status_text = "鎶曚骇鏃ユ湡鏍煎紡鏃犳硶璇嗗埆"
                 else:
                     lifecycle_status = "unknown"
-                    lifecycle_status_text = "投产日期未填写"
+                    lifecycle_status_text = "鎶曚骇鏃ユ湡鏈～鍐?
             
-            # 将状态信息添加到设备对象
+            # 灏嗙姸鎬佷俊鎭坊鍔犲埌璁惧瀵硅薄
             device.lifecycle_status = lifecycle_status
             device.lifecycle_status_text = lifecycle_status_text
         
-        # 显示前几个设备的信息用于调试
+        # 鏄剧ず鍓嶅嚑涓澶囩殑淇℃伅鐢ㄤ簬璋冭瘯
         if device_count > 0:
-            print("\n前3个设备信息:")
+            print("\n鍓?涓澶囦俊鎭?")
             for i, device in enumerate(devices[:3]):
-                print(f"  设备{i+1}: ID={device.id}, 资产编号={device.asset_id}, 名称={device.name}, 生命周期状态={device.lifecycle_status}")
+                print(f"  璁惧{i+1}: ID={device.id}, 璧勪骇缂栧彿={device.asset_id}, 鍚嶇О={device.name}, 鐢熷懡鍛ㄦ湡鐘舵€?{device.lifecycle_status}")
         else:
-            print("警告: 数据库中没有设备数据！")
+            print("璀﹀憡: 鏁版嵁搴撲腑娌℃湁璁惧鏁版嵁锛?)
         
-        # 获取连接数据用于统计
+        # 鑾峰彇杩炴帴鏁版嵁鐢ㄤ簬缁熻
         connections = db.query(Connection).all()
         connection_count = len(connections)
-        print(f"数据库中共有 {connection_count} 个连接")
+        print(f"鏁版嵁搴撲腑鍏辨湁 {connection_count} 涓繛鎺?)
         
-        # 获取所有不重复的局站列表，用于筛选下拉框
-        print("正在获取局站列表...")
+        # 鑾峰彇鎵€鏈変笉閲嶅鐨勫眬绔欏垪琛紝鐢ㄤ簬绛涢€変笅鎷夋
+        print("姝ｅ湪鑾峰彇灞€绔欏垪琛?..")
         stations = db.query(Device.station).filter(Device.station.isnot(None)).filter(Device.station != '').distinct().all()
-        station_list = [station[0] for station in stations if station[0]]  # 提取局站名称并过滤空值
-        station_list.sort()  # 按字母顺序排序
-        print(f"找到 {len(station_list)} 个不同的局站: {station_list}")
+        station_list = [station[0] for station in stations if station[0]]  # 鎻愬彇灞€绔欏悕绉板苟杩囨护绌哄€?
+        station_list.sort()  # 鎸夊瓧姣嶉『搴忔帓搴?
+        print(f"鎵惧埌 {len(station_list)} 涓笉鍚岀殑灞€绔? {station_list}")
         
-        # 使用预定义的标准设备类型列表
-        print("正在加载标准设备类型列表...")
+        # 浣跨敤棰勫畾涔夌殑鏍囧噯璁惧绫诲瀷鍒楄〃
+        print("姝ｅ湪鍔犺浇鏍囧噯璁惧绫诲瀷鍒楄〃...")
         device_type_list = sorted(STANDARD_DEVICE_TYPES)
-        print(f"加载了 {len(device_type_list)} 个标准设备类型: {device_type_list}")
+        print(f"鍔犺浇浜?{len(device_type_list)} 涓爣鍑嗚澶囩被鍨? {device_type_list}")
         
-        # 获取所有不重复的厂家列表，用于筛选下拉框
-        print("正在获取厂家列表...")
+        # 鑾峰彇鎵€鏈変笉閲嶅鐨勫巶瀹跺垪琛紝鐢ㄤ簬绛涢€変笅鎷夋
+        print("姝ｅ湪鑾峰彇鍘傚鍒楄〃...")
         vendors = db.query(Device.vendor).filter(Device.vendor.isnot(None)).filter(Device.vendor != '').distinct().all()
-        vendor_list = [vendor[0] for vendor in vendors if vendor[0]]  # 提取厂家名称并过滤空值
-        vendor_list.sort()  # 按字母顺序排序
-        print(f"找到 {len(vendor_list)} 个不同的厂家: {vendor_list}")
+        vendor_list = [vendor[0] for vendor in vendors if vendor[0]]  # 鎻愬彇鍘傚鍚嶇О骞惰繃婊ょ┖鍊?
+        vendor_list.sort()  # 鎸夊瓧姣嶉『搴忔帓搴?
+        print(f"鎵惧埌 {len(vendor_list)} 涓笉鍚岀殑鍘傚: {vendor_list}")
         
-        # 检查是否有上传错误信息
+        # 妫€鏌ユ槸鍚︽湁涓婁紶閿欒淇℃伅
         upload_error = request.query_params.get("error")
         if upload_error:
-            print(f"检测到上传错误信息: {upload_error}")
+            print(f"妫€娴嬪埌涓婁紶閿欒淇℃伅: {upload_error}")
         else:
-            print("没有上传错误信息")
+            print("娌℃湁涓婁紶閿欒淇℃伅")
         
-        # 检查是否有成功信息
+        # 妫€鏌ユ槸鍚︽湁鎴愬姛淇℃伅
         success_message = request.query_params.get("success")
         if success_message:
-            print(f"检测到成功信息: {success_message}")
+            print(f"妫€娴嬪埌鎴愬姛淇℃伅: {success_message}")
         else:
-            print("没有成功信息")
+            print("娌℃湁鎴愬姛淇℃伅")
         
-        print("=== 首页数据获取完成 ===")
+        print("=== 棣栭〉鏁版嵁鑾峰彇瀹屾垚 ===")
         
         return templates.TemplateResponse("index.html", {
             "request": request, 
@@ -1980,279 +1673,279 @@ async def read_root(request: Request, db: Session = Depends(get_db)):
         })
         
     except Exception as e:
-        print(f"\n!!! 首页数据获取失败 !!!")
-        print(f"错误类型: {type(e).__name__}")
-        print(f"错误信息: {e}")
-        print("\n完整错误堆栈:")
+        print(f"\n!!! 棣栭〉鏁版嵁鑾峰彇澶辫触 !!!")
+        print(f"閿欒绫诲瀷: {type(e).__name__}")
+        print(f"閿欒淇℃伅: {e}")
+        print("\n瀹屾暣閿欒鍫嗘爤:")
         traceback.print_exc()
         print("=" * 50)
         
-        # 返回错误页面或空设备列表
+        # 杩斿洖閿欒椤甸潰鎴栫┖璁惧鍒楄〃
         return templates.TemplateResponse("index.html", {
             "request": request, 
             "devices": [], 
             "stations": [],
             "device_types": [],
             "vendors": [],
-            "upload_error": f"获取设备数据时出错: {e}"
+            "upload_error": f"鑾峰彇璁惧鏁版嵁鏃跺嚭閿? {e}"
         })
 
 @app.post("/upload")
 async def upload_excel(file: UploadFile = File(...), password: str = Form(...), db: Session = Depends(get_db)):
     """
-    处理 Excel 文件上传。
-    如果失败，则重定向回主页并附带详细错误信息。
-    增加了详细的日志记录来跟踪处理过程。
+    澶勭悊 Excel 鏂囦欢涓婁紶銆?
+    濡傛灉澶辫触锛屽垯閲嶅畾鍚戝洖涓婚〉骞堕檮甯﹁缁嗛敊璇俊鎭€?
+    澧炲姞浜嗚缁嗙殑鏃ュ織璁板綍鏉ヨ窡韪鐞嗚繃绋嬨€?
     """
-    print("\n=== 开始处理上传的Excel文件 ===")
-    print(f"上传文件名: {file.filename}")
-    print(f"文件类型: {file.content_type}")
+    print("\n=== 寮€濮嬪鐞嗕笂浼犵殑Excel鏂囦欢 ===")
+    print(f"涓婁紶鏂囦欢鍚? {file.filename}")
+    print(f"鏂囦欢绫诲瀷: {file.content_type}")
     
-    # 验证管理员密码
+    # 楠岃瘉绠＄悊鍛樺瘑鐮?
     if not verify_admin_password(password):
-        error_message = "密码错误，无权限执行此操作。"
-        print(f"权限验证失败: {error_message}")
+        error_message = "瀵嗙爜閿欒锛屾棤鏉冮檺鎵ц姝ゆ搷浣溿€?
+        print(f"鏉冮檺楠岃瘉澶辫触: {error_message}")
         return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
     
-    print("管理员密码验证通过")
+    print("绠＄悊鍛樺瘑鐮侀獙璇侀€氳繃")
     
     try:
-        # 步骤 1: 增量更新模式 - 保留手工添加的设备，只更新Excel中的设备
-        print("\n步骤 1: 采用增量更新模式，保留现有手工添加的设备...")
+        # 姝ラ 1: 澧為噺鏇存柊妯″紡 - 淇濈暀鎵嬪伐娣诲姞鐨勮澶囷紝鍙洿鏂癊xcel涓殑璁惧
+        print("\n姝ラ 1: 閲囩敤澧為噺鏇存柊妯″紡锛屼繚鐣欑幇鏈夋墜宸ユ坊鍔犵殑璁惧...")
         
-        # 记录当前数据量
+        # 璁板綍褰撳墠鏁版嵁閲?
         current_connections_count = db.query(Connection).count()
         current_devices_count = db.query(Device).count()
-        print(f"当前数据库状态: {current_connections_count} 个连接, {current_devices_count} 个设备")
-        print("步骤 1: 完成。将采用增量更新模式处理Excel数据。")
+        print(f"褰撳墠鏁版嵁搴撶姸鎬? {current_connections_count} 涓繛鎺? {current_devices_count} 涓澶?)
+        print("姝ラ 1: 瀹屾垚銆傚皢閲囩敤澧為噺鏇存柊妯″紡澶勭悊Excel鏁版嵁銆?)
 
         contents = await file.read()
-        print(f"文件大小: {len(contents)} 字节")
+        print(f"鏂囦欢澶у皬: {len(contents)} 瀛楄妭")
         buffer = io.BytesIO(contents)
         
-        # 步骤 2: 读取Excel文件
-        print("\n步骤 2: 使用 pandas 读取Excel文件...")
-        # 通过 dtype 参数指定列以字符串形式读取，避免自动转换格式
-        # 重要：假设"上级设备"列现在包含的是父设备的资产编号
+        # 姝ラ 2: 璇诲彇Excel鏂囦欢
+        print("\n姝ラ 2: 浣跨敤 pandas 璇诲彇Excel鏂囦欢...")
+        # 閫氳繃 dtype 鍙傛暟鎸囧畾鍒椾互瀛楃涓插舰寮忚鍙栵紝閬垮厤鑷姩杞崲鏍煎紡
+        # 閲嶈锛氬亣璁?涓婄骇璁惧"鍒楃幇鍦ㄥ寘鍚殑鏄埗璁惧鐨勮祫浜х紪鍙?
         df = pd.read_excel(buffer, dtype={
-            '资产编号': str,
-            '设备投产时间': str,
-            '上级设备': str 
+            '璧勪骇缂栧彿': str,
+            '璁惧鎶曚骇鏃堕棿': str,
+            '涓婄骇璁惧': str 
         })
-        df = df.where(pd.notna(df), None) # 将 NaN 替换为 None
-        print(f"步骤 2: 完成。读取到 {len(df)} 行数据。")
-        print(f"Excel 文件列名: {df.columns.tolist()}")
+        df = df.where(pd.notna(df), None) # 灏?NaN 鏇挎崲涓?None
+        print(f"姝ラ 2: 瀹屾垚銆傝鍙栧埌 {len(df)} 琛屾暟鎹€?)
+        print(f"Excel 鏂囦欢鍒楀悕: {df.columns.tolist()}")
         
-        # 验证必要的列是否存在
-        required_columns = ['资产编号', '设备名称']
+        # 楠岃瘉蹇呰鐨勫垪鏄惁瀛樺湪
+        required_columns = ['璧勪骇缂栧彿', '璁惧鍚嶇О']
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
-            error_msg = f"Excel文件缺少必要的列: {missing_columns}"
-            print(f"错误: {error_msg}")
+            error_msg = f"Excel鏂囦欢缂哄皯蹇呰鐨勫垪: {missing_columns}"
+            print(f"閿欒: {error_msg}")
             return RedirectResponse(url=f"/?error={quote(error_msg)}", status_code=303)
         
-        # 显示前几行数据样本用于调试
-        print("\n前3行数据样本:")
+        # 鏄剧ず鍓嶅嚑琛屾暟鎹牱鏈敤浜庤皟璇?
+        print("\n鍓?琛屾暟鎹牱鏈?")
         for i in range(min(3, len(df))):
-            print(f"第{i+1}行: 资产编号={df.iloc[i].get('资产编号')}, 设备名称={df.iloc[i].get('设备名称')}")
+            print(f"绗瑊i+1}琛? 璧勪骇缂栧彿={df.iloc[i].get('璧勪骇缂栧彿')}, 璁惧鍚嶇О={df.iloc[i].get('璁惧鍚嶇О')}")
 
-        devices_map = {} # 这个映射将以 资产编号 为键
+        devices_map = {} # 杩欎釜鏄犲皠灏嗕互 璧勪骇缂栧彿 涓洪敭
         devices_created_count = 0
         devices_updated_count = 0
         skipped_rows = []
 
-        # 步骤 3: 增量更新设备（创建或更新）
-        print("\n步骤 3: 开始第一遍处理 - 增量更新设备（创建新设备或更新现有设备）...")
+        # 姝ラ 3: 澧為噺鏇存柊璁惧锛堝垱寤烘垨鏇存柊锛?
+        print("\n姝ラ 3: 寮€濮嬬涓€閬嶅鐞?- 澧為噺鏇存柊璁惧锛堝垱寤烘柊璁惧鎴栨洿鏂扮幇鏈夎澶囷級...")
         for index, row in df.iterrows():
-            # 新增：获取并校验资产编号
-            asset_id = row.get("资产编号")
+            # 鏂板锛氳幏鍙栧苟鏍￠獙璧勪骇缂栧彿
+            asset_id = row.get("璧勪骇缂栧彿")
             if isinstance(asset_id, str):
                 asset_id = asset_id.strip()
 
             if not asset_id or asset_id == 'nan' or asset_id.lower() == 'none':
-                skip_reason = f"资产编号为空或无效: '{asset_id}'"
-                print(f"  - 第 {index+2} 行：跳过，{skip_reason}")
+                skip_reason = f"璧勪骇缂栧彿涓虹┖鎴栨棤鏁? '{asset_id}'"
+                print(f"  - 绗?{index+2} 琛岋細璺宠繃锛寋skip_reason}")
                 skipped_rows.append((index+2, skip_reason))
                 continue
             
-            device_name = row.get("设备名称")
+            device_name = row.get("璁惧鍚嶇О")
             if isinstance(device_name, str):
                 device_name = device_name.strip()
 
             if not device_name or device_name == 'nan' or device_name.lower() == 'none':
-                skip_reason = f"设备名称为空或无效: '{device_name}'"
-                print(f"  - 第 {index+2} 行：跳过，{skip_reason}")
+                skip_reason = f"璁惧鍚嶇О涓虹┖鎴栨棤鏁? '{device_name}'"
+                print(f"  - 绗?{index+2} 琛岋細璺宠繃锛寋skip_reason}")
                 skipped_rows.append((index+2, skip_reason))
                 continue
             
-            # 检查资产编号是否已在本次上传中重复
+            # 妫€鏌ヨ祫浜х紪鍙锋槸鍚﹀凡鍦ㄦ湰娆′笂浼犱腑閲嶅
             if asset_id in devices_map:
-                skip_reason = f"资产编号 '{asset_id}' 在Excel文件中重复"
-                print(f"  - 第 {index+2} 行：跳过，{skip_reason}")
+                skip_reason = f"璧勪骇缂栧彿 '{asset_id}' 鍦‥xcel鏂囦欢涓噸澶?
+                print(f"  - 绗?{index+2} 琛岋細璺宠繃锛寋skip_reason}")
                 skipped_rows.append((index+2, skip_reason))
                 continue
 
             try:
-                # 检查数据库中是否已存在该资产编号的设备
+                # 妫€鏌ユ暟鎹簱涓槸鍚﹀凡瀛樺湪璇ヨ祫浜х紪鍙风殑璁惧
                 existing_device = db.query(Device).filter(Device.asset_id == asset_id).first()
                 
-                # 获取局站信息
-                station = row.get("局站")
+                # 鑾峰彇灞€绔欎俊鎭?
+                station = row.get("灞€绔?)
                 if isinstance(station, str):
                     station = station.strip()
                 if not station or station == 'nan' or station.lower() == 'none':
-                    skip_reason = f"局站信息为空或无效: '{station}'"
-                    print(f"  - 第 {index+2} 行：跳过，{skip_reason}")
+                    skip_reason = f"灞€绔欎俊鎭负绌烘垨鏃犳晥: '{station}'"
+                    print(f"  - 绗?{index+2} 琛岋細璺宠繃锛寋skip_reason}")
                     skipped_rows.append((index+2, skip_reason))
                     continue
                 
-                # 获取并验证设备类型
-                device_type = row.get("设备类型")
+                # 鑾峰彇骞堕獙璇佽澶囩被鍨?
+                device_type = row.get("璁惧绫诲瀷")
                 if isinstance(device_type, str):
                     device_type = device_type.strip()
                 
-                # 验证设备类型是否在标准列表中
+                # 楠岃瘉璁惧绫诲瀷鏄惁鍦ㄦ爣鍑嗗垪琛ㄤ腑
                 if device_type and device_type != 'nan' and device_type.lower() != 'none':
                     if not validate_device_type(device_type):
-                        # 提供建议的设备类型
+                        # 鎻愪緵寤鸿鐨勮澶囩被鍨?
                         suggestions = get_device_type_suggestions(device_type)
                         if suggestions:
-                            suggestion_text = f"，建议使用: {', '.join(suggestions[:3])}"
+                            suggestion_text = f"锛屽缓璁娇鐢? {', '.join(suggestions[:3])}"
                         else:
-                            suggestion_text = ""
-                        skip_reason = f"设备类型 '{device_type}' 不在标准列表中{suggestion_text}"
-                        print(f"  - 第 {index+2} 行：跳过，{skip_reason}")
+                            suggestion_text = """
+                        skip_reason = f"璁惧绫诲瀷 '{device_type}' 涓嶅湪鏍囧噯鍒楄〃涓瓄suggestion_text}"
+                        print(f"  - 绗?{index+2} 琛岋細璺宠繃锛寋skip_reason}")
                         skipped_rows.append((index+2, skip_reason))
                         continue
                 else:
-                    # 如果设备类型为空，设置为"待确认"
-                    device_type = "待确认"
+                    # 濡傛灉璁惧绫诲瀷涓虹┖锛岃缃负"寰呯‘璁?
+                    device_type = "寰呯‘璁?
                 
                 if existing_device:
-                    # 更新现有设备
+                    # 鏇存柊鐜版湁璁惧
                     existing_device.name = device_name
                     existing_device.station = station
-                    existing_device.model = row.get("设备型号")
-                    existing_device.device_type = device_type  # 使用验证后的设备类型
-                    existing_device.location = row.get("机房内空间位置")
-                    existing_device.power_rating = row.get("设备额定容量")
-                    existing_device.vendor = row.get("设备生产厂家")
-                    existing_device.commission_date = row.get("设备投产时间")
-                    existing_device.remark = row.get("备注")
+                    existing_device.model = row.get("璁惧鍨嬪彿")
+                    existing_device.device_type = device_type  # 浣跨敤楠岃瘉鍚庣殑璁惧绫诲瀷
+                    existing_device.location = row.get("鏈烘埧鍐呯┖闂翠綅缃?)
+                    existing_device.power_rating = row.get("璁惧棰濆畾瀹归噺")
+                    existing_device.vendor = row.get("璁惧鐢熶骇鍘傚")
+                    existing_device.commission_date = row.get("璁惧鎶曚骇鏃堕棿")
+                    existing_device.remark = row.get("澶囨敞")
                     
-                    # 注意：以下机房相关字段被忽略（根据用户要求）：
-                    # - 机房名称
-                    # - 资源系统机房名称  
-                    # - 资源系统机房编码
-                    # - 机房等级
+                    # 娉ㄦ剰锛氫互涓嬫満鎴跨浉鍏冲瓧娈佃蹇界暐锛堟牴鎹敤鎴疯姹傦級锛?
+                    # - 鏈烘埧鍚嶇О
+                    # - 璧勬簮绯荤粺鏈烘埧鍚嶇О  
+                    # - 璧勬簮绯荤粺鏈烘埧缂栫爜
+                    # - 鏈烘埧绛夌骇
                     
                     devices_map[asset_id] = existing_device
                     devices_updated_count += 1
-                    print(f"  - 第 {index+2} 行：准备更新现有设备 '{device_name}' (资产编号: {asset_id}, 局站: {station})")
+                    print(f"  - 绗?{index+2} 琛岋細鍑嗗鏇存柊鐜版湁璁惧 '{device_name}' (璧勪骇缂栧彿: {asset_id}, 灞€绔? {station})")
                 else:
-                    # 创建新设备
+                    # 鍒涘缓鏂拌澶?
                     device = Device(
                         asset_id=asset_id,
                         name=device_name,
                         station=station,
-                        model=row.get("设备型号"),
-                        device_type=device_type,  # 使用验证后的设备类型
-                        location=row.get("机房内空间位置"),
-                        power_rating=row.get("设备额定容量"),
-                        vendor=row.get("设备生产厂家"),
-                        commission_date=row.get("设备投产时间"),
-                        remark=row.get("备注")
-                        # 注意：以下机房相关字段被忽略（根据用户要求）：
-                        # - 机房名称
-                        # - 资源系统机房名称  
-                        # - 资源系统机房编码
-                        # - 机房等级
+                        model=row.get("璁惧鍨嬪彿"),
+                        device_type=device_type,  # 浣跨敤楠岃瘉鍚庣殑璁惧绫诲瀷
+                        location=row.get("鏈烘埧鍐呯┖闂翠綅缃?),
+                        power_rating=row.get("璁惧棰濆畾瀹归噺"),
+                        vendor=row.get("璁惧鐢熶骇鍘傚"),
+                        commission_date=row.get("璁惧鎶曚骇鏃堕棿"),
+                        remark=row.get("澶囨敞")
+                        # 娉ㄦ剰锛氫互涓嬫満鎴跨浉鍏冲瓧娈佃蹇界暐锛堟牴鎹敤鎴疯姹傦級锛?
+                        # - 鏈烘埧鍚嶇О
+                        # - 璧勬簮绯荤粺鏈烘埧鍚嶇О  
+                        # - 璧勬簮绯荤粺鏈烘埧缂栫爜
+                        # - 鏈烘埧绛夌骇
                     )
                     db.add(device)
                     devices_map[asset_id] = device
                     devices_created_count += 1
-                    print(f"  - 第 {index+2} 行：准备创建新设备 '{device_name}' (资产编号: {asset_id}, 局站: {station})")
+                    print(f"  - 绗?{index+2} 琛岋細鍑嗗鍒涘缓鏂拌澶?'{device_name}' (璧勪骇缂栧彿: {asset_id}, 灞€绔? {station})")
                     
             except Exception as device_error:
-                skip_reason = f"处理设备失败: {device_error}"
-                print(f"  - 第 {index+2} 行：跳过，{skip_reason}")
+                skip_reason = f"澶勭悊璁惧澶辫触: {device_error}"
+                print(f"  - 绗?{index+2} 琛岋細璺宠繃锛寋skip_reason}")
                 skipped_rows.append((index+2, skip_reason))
                 continue
         
-        print(f"\n准备提交设备更改到数据库（新建: {devices_created_count}, 更新: {devices_updated_count}）...")
+        print(f"\n鍑嗗鎻愪氦璁惧鏇存敼鍒版暟鎹簱锛堟柊寤? {devices_created_count}, 鏇存柊: {devices_updated_count}锛?..")
         try:
-            db.commit() # 提交事务以生成设备ID
-            print("设备提交成功！")
+            db.commit() # 鎻愪氦浜嬪姟浠ョ敓鎴愯澶嘔D
+            print("璁惧鎻愪氦鎴愬姛锛?)
         except Exception as commit_error:
-            print(f"设备提交失败: {commit_error}")
+            print(f"璁惧鎻愪氦澶辫触: {commit_error}")
             db.rollback()
             raise commit_error
             
-        # 验证设备数量
+        # 楠岃瘉璁惧鏁伴噺
         actual_device_count = db.query(Device).count()
-        print(f"步骤 3: 完成。新建 {devices_created_count} 个设备，更新 {devices_updated_count} 个设备，数据库中总共有 {actual_device_count} 个设备。")
+        print(f"姝ラ 3: 瀹屾垚銆傛柊寤?{devices_created_count} 涓澶囷紝鏇存柊 {devices_updated_count} 涓澶囷紝鏁版嵁搴撲腑鎬诲叡鏈?{actual_device_count} 涓澶囥€?)
         
         if skipped_rows:
-            print(f"\n跳过的行数统计: {len(skipped_rows)} 行")
-            for row_num, reason in skipped_rows[:5]:  # 只显示前5个
-                print(f"  第{row_num}行: {reason}")
+            print(f"\n璺宠繃鐨勮鏁扮粺璁? {len(skipped_rows)} 琛?)
+            for row_num, reason in skipped_rows[:5]:  # 鍙樉绀哄墠5涓?
+                print(f"  绗瑊row_num}琛? {reason}")
             if len(skipped_rows) > 5:
-                print(f"  ... 还有 {len(skipped_rows) - 5} 行被跳过")
+                print(f"  ... 杩樻湁 {len(skipped_rows) - 5} 琛岃璺宠繃")
 
-        # 刷新映射，确保对象包含数据库生成的ID
-        print("\n刷新设备对象以获取数据库生成的ID...")
+        # 鍒锋柊鏄犲皠锛岀‘淇濆璞″寘鍚暟鎹簱鐢熸垚鐨処D
+        print("\n鍒锋柊璁惧瀵硅薄浠ヨ幏鍙栨暟鎹簱鐢熸垚鐨処D...")
         for asset_id_key in list(devices_map.keys()):
             try:
                 db.refresh(devices_map[asset_id_key])
-                print(f"  设备 {asset_id_key} ID: {devices_map[asset_id_key].id}")
+                print(f"  璁惧 {asset_id_key} ID: {devices_map[asset_id_key].id}")
             except Exception as refresh_error:
-                print(f"  刷新设备 {asset_id_key} 失败: {refresh_error}")
+                print(f"  鍒锋柊璁惧 {asset_id_key} 澶辫触: {refresh_error}")
 
-        # 步骤 4: 清理涉及Excel设备的旧连接
-        print("\n步骤 4: 清理涉及Excel中设备的旧连接...")
+        # 姝ラ 4: 娓呯悊娑夊強Excel璁惧鐨勬棫杩炴帴
+        print("\n姝ラ 4: 娓呯悊娑夊強Excel涓澶囩殑鏃ц繛鎺?..")
         excel_device_ids = [device.id for device in devices_map.values()]
         if excel_device_ids:
-            # 删除涉及这些设备的所有连接（作为源设备或目标设备）
+            # 鍒犻櫎娑夊強杩欎簺璁惧鐨勬墍鏈夎繛鎺ワ紙浣滀负婧愯澶囨垨鐩爣璁惧锛?
             old_connections_deleted = db.query(Connection).filter(
                 (Connection.source_device_id.in_(excel_device_ids)) |
                 (Connection.target_device_id.in_(excel_device_ids))
             ).delete(synchronize_session=False)
             db.commit()
-            print(f"删除了 {old_connections_deleted} 个涉及Excel设备的旧连接")
+            print(f"鍒犻櫎浜?{old_connections_deleted} 涓秹鍙奅xcel璁惧鐨勬棫杩炴帴")
         else:
-            print("没有Excel设备，跳过连接清理")
+            print("娌℃湁Excel璁惧锛岃烦杩囪繛鎺ユ竻鐞?)
             
         connections_created_count = 0
         connection_skipped_rows = []
         
-        # 步骤 5: 创建新连接
-        print("\n步骤 5: 开始第二遍处理 - 创建新连接...")
+        # 姝ラ 5: 鍒涘缓鏂拌繛鎺?
+        print("\n姝ラ 5: 寮€濮嬬浜岄亶澶勭悊 - 鍒涘缓鏂拌繛鎺?..")
         for index, row in df.iterrows():
-            # 使用资产编号来查找设备
-            source_asset_id = row.get("上级设备")
-            target_asset_id = row.get("资产编号")
+            # 浣跨敤璧勪骇缂栧彿鏉ユ煡鎵捐澶?
+            source_asset_id = row.get("涓婄骇璁惧")
+            target_asset_id = row.get("璧勪骇缂栧彿")
 
             if isinstance(source_asset_id, str):
                 source_asset_id = source_asset_id.strip()
             if isinstance(target_asset_id, str):
                 target_asset_id = target_asset_id.strip()
             
-            # 检查是否有上级设备信息
+            # 妫€鏌ユ槸鍚︽湁涓婄骇璁惧淇℃伅
             if not source_asset_id or source_asset_id == 'nan' or source_asset_id.lower() == 'none':
-                print(f"  - 第 {index+2} 行：跳过连接创建，无上级设备信息")
+                print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴鍒涘缓锛屾棤涓婄骇璁惧淇℃伅")
                 continue
                 
-            # 确保源和目标设备都存在于映射中
+            # 纭繚婧愬拰鐩爣璁惧閮藉瓨鍦ㄤ簬鏄犲皠涓?
             if target_asset_id and source_asset_id:
                 if source_asset_id not in devices_map:
-                    skip_reason = f"上级设备 '{source_asset_id}' 不存在"
-                    print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
+                    skip_reason = f"涓婄骇璁惧 '{source_asset_id}' 涓嶅瓨鍦?
+                    print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴锛寋skip_reason}")
                     connection_skipped_rows.append((index+2, skip_reason))
                     continue
                     
                 if target_asset_id not in devices_map:
-                    skip_reason = f"目标设备 '{target_asset_id}' 不存在"
-                    print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
+                    skip_reason = f"鐩爣璁惧 '{target_asset_id}' 涓嶅瓨鍦?
+                    print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴锛寋skip_reason}")
                     connection_skipped_rows.append((index+2, skip_reason))
                     continue
                 
@@ -2262,164 +1955,164 @@ async def upload_excel(file: UploadFile = File(...), password: str = Form(...), 
                 try:
                     connection = Connection(
                         source_device_id=source_device.id,
-                        source_port=row.get("上级端口"),
+                        source_port=row.get("涓婄骇绔彛"),
                         target_device_id=target_device.id,
-                        target_port=row.get("本端端口"),
-                        cable_type=row.get("线缆类型")
+                        target_port=row.get("鏈绔彛"),
+                        cable_type=row.get("绾跨紗绫诲瀷")
                     )
                     db.add(connection)
                     connections_created_count += 1
-                    print(f"  - 第 {index+2} 行：准备创建从 '{source_device.name}' 到 '{target_device.name}' 的连接")
+                    print(f"  - 绗?{index+2} 琛岋細鍑嗗鍒涘缓浠?'{source_device.name}' 鍒?'{target_device.name}' 鐨勮繛鎺?)
                 except Exception as conn_error:
-                    skip_reason = f"创建连接对象失败: {conn_error}"
-                    print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
+                    skip_reason = f"鍒涘缓杩炴帴瀵硅薄澶辫触: {conn_error}"
+                    print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴锛寋skip_reason}")
                     connection_skipped_rows.append((index+2, skip_reason))
                     continue
         
-        print(f"\n准备提交 {connections_created_count} 个连接到数据库...")
+        print(f"\n鍑嗗鎻愪氦 {connections_created_count} 涓繛鎺ュ埌鏁版嵁搴?..")
         try:
             db.commit()
-            print("连接提交成功！")
+            print("杩炴帴鎻愪氦鎴愬姛锛?)
         except Exception as commit_error:
-            print(f"连接提交失败: {commit_error}")
+            print(f"杩炴帴鎻愪氦澶辫触: {commit_error}")
             db.rollback()
             raise commit_error
             
-        # 验证连接是否真的被创建
+        # 楠岃瘉杩炴帴鏄惁鐪熺殑琚垱寤?
         actual_connection_count = db.query(Connection).count()
-        print(f"步骤 5: 完成。预期创建 {connections_created_count} 个连接，实际数据库中有 {actual_connection_count} 个连接。")
+        print(f"姝ラ 5: 瀹屾垚銆傞鏈熷垱寤?{connections_created_count} 涓繛鎺ワ紝瀹為檯鏁版嵁搴撲腑鏈?{actual_connection_count} 涓繛鎺ャ€?)
         
         if connection_skipped_rows:
-            print(f"\n连接跳过的行数统计: {len(connection_skipped_rows)} 行")
-            for row_num, reason in connection_skipped_rows[:5]:  # 只显示前5个
-                print(f"  第{row_num}行: {reason}")
+            print(f"\n杩炴帴璺宠繃鐨勮鏁扮粺璁? {len(connection_skipped_rows)} 琛?)
+            for row_num, reason in connection_skipped_rows[:5]:  # 鍙樉绀哄墠5涓?
+                print(f"  绗瑊row_num}琛? {reason}")
             if len(connection_skipped_rows) > 5:
-                print(f"  ... 还有 {len(connection_skipped_rows) - 5} 行连接被跳过")
+                print(f"  ... 杩樻湁 {len(connection_skipped_rows) - 5} 琛岃繛鎺ヨ璺宠繃")
         
-        # 步骤 6: 处理Sheet2连接数据
+        # 姝ラ 6: 澶勭悊Sheet2杩炴帴鏁版嵁
         sheet2_connections_count = 0
         sheet2_skipped_rows = []
         
         try:
-            print("\n步骤 6: 开始处理Sheet2连接数据...")
+            print("\n姝ラ 6: 寮€濮嬪鐞哠heet2杩炴帴鏁版嵁...")
             
-            # 尝试读取Sheet2（连接表）
+            # 灏濊瘯璇诲彇Sheet2锛堣繛鎺ヨ〃锛?
             try:
-                # 重置buffer位置到开头，因为之前读取Sheet1时已经移动了位置
+                # 閲嶇疆buffer浣嶇疆鍒板紑澶达紝鍥犱负涔嬪墠璇诲彇Sheet1鏃跺凡缁忕Щ鍔ㄤ簡浣嶇疆
                 buffer.seek(0)
-                df_connections = pd.read_excel(buffer, sheet_name='连接')
-                print(f"成功读取Sheet2，共 {len(df_connections)} 行连接数据")
+                df_connections = pd.read_excel(buffer, sheet_name='杩炴帴')
+                print(f"鎴愬姛璇诲彇Sheet2锛屽叡 {len(df_connections)} 琛岃繛鎺ユ暟鎹?)
             except Exception as sheet_error:
-                print(f"无法读取Sheet2（连接表）: {sheet_error}")
-                print("跳过Sheet2处理，继续完成导入")
+                print(f"鏃犳硶璇诲彇Sheet2锛堣繛鎺ヨ〃锛? {sheet_error}")
+                print("璺宠繃Sheet2澶勭悊锛岀户缁畬鎴愬鍏?)
                 df_connections = None
             
             if df_connections is not None and len(df_connections) > 0:
-                # 连接类型映射 - 扩展映射表以包含更多可能的空值表示
+                # 杩炴帴绫诲瀷鏄犲皠 - 鎵╁睍鏄犲皠琛ㄤ互鍖呭惈鏇村鍙兘鐨勭┖鍊艰〃绀?
                 CONNECTION_TYPE_MAPPING = {
-                    # 标准连接类型
-                    '电缆': 'cable',
-                    '铜排': 'busbar', 
-                    '母线': 'busway',
+                    # 鏍囧噯杩炴帴绫诲瀷
+                    '鐢电紗': 'cable',
+                    '閾滄帓': 'busbar', 
+                    '姣嶇嚎': 'busway',
                     'cable': 'cable',
                     'busbar': 'busbar',
                     'busway': 'busway',
-                    # 电气连接类型 - 根据实际Excel数据添加
-                    '直流': 'DC',
-                    '交流': 'AC',
+                    # 鐢垫皵杩炴帴绫诲瀷 - 鏍规嵁瀹為檯Excel鏁版嵁娣诲姞
+                    '鐩存祦': 'DC',
+                    '浜ゆ祦': 'AC',
                     'DC': 'DC',
                     'AC': 'AC',
                     'dc': 'DC',
                     'ac': 'AC',
-                    # 空值的各种表示方式 - 统一映射为None表示空闲端口
-                    '无': None,
-                    '空': None,
-                    '空闲': None,
-                    '未连接': None,
+                    # 绌哄€肩殑鍚勭琛ㄧず鏂瑰紡 - 缁熶竴鏄犲皠涓篘one琛ㄧず绌洪棽绔彛
+                    '鏃?: None,
+                    '绌?: None,
+                    '绌洪棽': None,
+                    '鏈繛鎺?: None,
                     'N/A': None,
                     'n/a': None,
                     'NA': None,
                     'na': None,
-                    '无连接': None,
-                    '待连接': None,
-                    '预留': None,
+                    '鏃犺繛鎺?: None,
+                    '寰呰繛鎺?: None,
+                    '棰勭暀': None,
                     'None': None,
                     'null': None,
                     'NULL': None,
-                    '': None,  # 空字符串
-                    ' ': None,  # 空格
+                    '': None,  # 绌哄瓧绗︿覆
+                    ' ': None,  # 绌烘牸
                 }
                 
-                # 辅助函数：获取或创建设备
-                def get_or_create_device(device_name: str, default_station: str = "未知站点"):
-                    """获取设备，如果不存在则自动创建"""
+                # 杈呭姪鍑芥暟锛氳幏鍙栨垨鍒涘缓璁惧
+                def get_or_create_device(device_name: str, default_station: str = "鏈煡绔欑偣"):
+                    """鑾峰彇璁惧锛屽鏋滀笉瀛樺湪鍒欒嚜鍔ㄥ垱寤?"""
                     if not device_name:
                         return None
                     
                     device = db.query(Device).filter(Device.name == device_name).first()
                     if not device:
-                        # 自动创建设备
+                        # 鑷姩鍒涘缓璁惧
                         device = Device(
                             name=device_name,
-                            asset_id=f"AUTO_{len(device_name)}_{hash(device_name) % 10000:04d}",  # 生成唯一资产编号
+                            asset_id=f"AUTO_{len(device_name)}_{hash(device_name) % 10000:04d}",  # 鐢熸垚鍞竴璧勪骇缂栧彿
                             station=default_station,
-                            device_type="待确认",
-                            location="待确认",
-                            remark="通过Excel导入时自动创建，请完善设备信息"
+                            device_type="寰呯‘璁?,
+                            location="寰呯‘璁?,
+                            remark="閫氳繃Excel瀵煎叆鏃惰嚜鍔ㄥ垱寤猴紝璇峰畬鍠勮澶囦俊鎭?
                         )
                         db.add(device)
-                        db.flush()  # 获取ID但不提交
-                        print(f"  * 自动创建设备: {device_name} (ID: {device.id})")
+                        db.flush()  # 鑾峰彇ID浣嗕笉鎻愪氦
+                        print(f"  * 鑷姩鍒涘缓璁惧: {device_name} (ID: {device.id})")
                     return device
                 
-                # 统计信息
+                # 缁熻淇℃伅
                 created_devices = []
                 warnings = []
                 
                 for index, row in df_connections.iterrows():
                     try:
-                        # 获取设备名称
-                        source_device_name = str(row.get('A端设备名称', '')).strip()
-                        target_device_name = str(row.get('B端设备名称', '')).strip()
+                        # 鑾峰彇璁惧鍚嶇О
+                        source_device_name = str(row.get('A绔澶囧悕绉?, '')).strip()
+                        target_device_name = str(row.get('B绔澶囧悕绉?, '')).strip()
                         
-                        # 处理空设备名称的情况
+                        # 澶勭悊绌鸿澶囧悕绉扮殑鎯呭喌
                         if not source_device_name and not target_device_name:
-                            skip_reason = "A端和B端设备名称都为空"
-                            print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
+                            skip_reason = "A绔拰B绔澶囧悕绉伴兘涓虹┖"
+                            print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴锛寋skip_reason}")
                             sheet2_skipped_rows.append((index+2, skip_reason))
                             continue
                         elif not source_device_name:
-                            skip_reason = "A端设备名称为空"
-                            print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
+                            skip_reason = "A绔澶囧悕绉颁负绌?
+                            print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴锛寋skip_reason}")
                             sheet2_skipped_rows.append((index+2, skip_reason))
                             continue
                         elif not target_device_name:
-                            skip_reason = "B端设备名称为空"
-                            print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
+                            skip_reason = "B绔澶囧悕绉颁负绌?
+                            print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴锛寋skip_reason}")
                             sheet2_skipped_rows.append((index+2, skip_reason))
                             continue
                         
-                        # 获取或创建设备
+                        # 鑾峰彇鎴栧垱寤鸿澶?
                         source_device = get_or_create_device(source_device_name)
                         target_device = get_or_create_device(target_device_name)
                         
                         if not source_device or not target_device:
-                            skip_reason = "设备创建失败"
-                            print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
+                            skip_reason = "璁惧鍒涘缓澶辫触"
+                            print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴锛寋skip_reason}")
                             sheet2_skipped_rows.append((index+2, skip_reason))
                             continue
                         
-                        # 记录新创建的设备
-                        if source_device.remark and "通过Excel导入时自动创建" in source_device.remark:
+                        # 璁板綍鏂板垱寤虹殑璁惧
+                        if source_device.remark and "閫氳繃Excel瀵煎叆鏃惰嚜鍔ㄥ垱寤? in source_device.remark:
                             if source_device_name not in created_devices:
                                 created_devices.append(source_device_name)
-                        if target_device.remark and "通过Excel导入时自动创建" in target_device.remark:
+                        if target_device.remark and "閫氳繃Excel瀵煎叆鏃惰嚜鍔ㄥ垱寤? in target_device.remark:
                             if target_device_name not in created_devices:
                                 created_devices.append(target_device_name)
                         
-                        # 处理端口逻辑
+                        # 澶勭悊绔彛閫昏緫
                         def build_port_info(fuse_number, fuse_spec, breaker_number, breaker_spec):
-                            """构建端口信息，优先使用熔丝，其次使用空开"""
+                            """鏋勫缓绔彛淇℃伅锛屼紭鍏堜娇鐢ㄧ啍涓濓紝鍏舵浣跨敤绌哄紑"""
                             fuse_num = str(fuse_number).strip() if pd.notna(fuse_number) else ''
                             fuse_sp = str(fuse_spec).strip() if pd.notna(fuse_spec) else ''
                             breaker_num = str(breaker_number).strip() if pd.notna(breaker_number) else ''
@@ -2432,19 +2125,19 @@ async def upload_excel(file: UploadFile = File(...), password: str = Form(...), 
                             else:
                                 return None
                         
-                        # 构建A端和B端端口信息
+                        # 鏋勫缓A绔拰B绔鍙ｄ俊鎭?
                         source_port = build_port_info(
-                            row.get('A端熔丝编号'), row.get('A端熔丝规格'),
-                            row.get('A端空开编号'), row.get('A端空开规格')
+                            row.get('A绔啍涓濈紪鍙?), row.get('A绔啍涓濊鏍?),
+                            row.get('A绔┖寮€缂栧彿'), row.get('A绔┖寮€瑙勬牸')
                         )
                         target_port = build_port_info(
-                            row.get('B端熔丝编号'), row.get('B端熔丝规格'),
-                            row.get('B端空开编号'), row.get('空开规格')
+                            row.get('B绔啍涓濈紪鍙?), row.get('B绔啍涓濊鏍?),
+                            row.get('B绔┖寮€缂栧彿'), row.get('绌哄紑瑙勬牸')
                         )
                         
-                        # 处理连接类型 - 修复空闲端口被错误归类为电缆的问题
-                        connection_type_raw = row.get('连接类型（交流/直流）')  # 修正：使用实际Excel列名
-                        # 规则：空值 -> None；非空则按映射表转换，无法映射也置 None 并记录警告
+                        # 澶勭悊杩炴帴绫诲瀷 - 淇绌洪棽绔彛琚敊璇綊绫讳负鐢电紗鐨勯棶棰?
+                        connection_type_raw = row.get('杩炴帴绫诲瀷锛堜氦娴?鐩存祦锛?)  # 淇锛氫娇鐢ㄥ疄闄匛xcel鍒楀悕
+                        # 瑙勫垯锛氱┖鍊?-> None锛涢潪绌哄垯鎸夋槧灏勮〃杞崲锛屾棤娉曟槧灏勪篃缃?None 骞惰褰曡鍛?
                         connection_type = None
                         if pd.isna(connection_type_raw) or str(connection_type_raw).strip() == '':
                             connection_type = None
@@ -2452,10 +2145,10 @@ async def upload_excel(file: UploadFile = File(...), password: str = Form(...), 
                             raw = str(connection_type_raw).strip()
                             connection_type = CONNECTION_TYPE_MAPPING.get(raw, None)
                             if raw not in CONNECTION_TYPE_MAPPING:
-                                print(f"  * 警告：第 {index+2} 行连接类型 '{raw}' 无法识别，设置为空闲端口")
-                                warnings.append(f"第 {index+2} 行：连接类型 '{raw}' 无法识别")
+                                print(f"  * 璀﹀憡锛氱 {index+2} 琛岃繛鎺ョ被鍨?'{raw}' 鏃犳硶璇嗗埆锛岃缃负绌洪棽绔彛")
+                                warnings.append(f"绗?{index+2} 琛岋細杩炴帴绫诲瀷 '{raw}' 鏃犳硶璇嗗埆")
 
-                        # 检查是否已存在相同连接（按设备与端口维度去重）
+                        # 妫€鏌ユ槸鍚﹀凡瀛樺湪鐩稿悓杩炴帴锛堟寜璁惧涓庣鍙ｇ淮搴﹀幓閲嶏級
                         existing_connection = db.query(Connection).filter(
                             Connection.source_device_id == source_device.id,
                             Connection.target_device_id == target_device.id,
@@ -2464,80 +2157,80 @@ async def upload_excel(file: UploadFile = File(...), password: str = Form(...), 
                         ).first()
 
                         if existing_connection:
-                            skip_reason = "连接已存在"
-                            print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
+                            skip_reason = "杩炴帴宸插瓨鍦?
+                            print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴锛寋skip_reason}")
                             sheet2_skipped_rows.append((index+2, skip_reason))
                             continue
 
-                        # 创建连接记录（保留现有字段，未设置 cable_type，避免误用）
+                        # 鍒涘缓杩炴帴璁板綍锛堜繚鐣欑幇鏈夊瓧娈碉紝鏈缃?cable_type锛岄伩鍏嶈鐢級
                         connection = Connection(
                             source_device_id=source_device.id,
                             target_device_id=target_device.id,
                             source_port=source_port,
                             target_port=target_port,
-                            # A端信息
-                            source_fuse_number=str(row.get('A端熔丝编号', '')).strip() if pd.notna(row.get('A端熔丝编号')) else None,
-                            source_fuse_spec=str(row.get('A端熔丝规格', '')).strip() if pd.notna(row.get('A端熔丝规格')) else None,
-                            source_breaker_number=str(row.get('A端空开编号', '')).strip() if pd.notna(row.get('A端空开编号')) else None,
-                            source_breaker_spec=str(row.get('A端空开规格', '')).strip() if pd.notna(row.get('A端空开规格')) else None,
-                            # B端信息
-                            target_fuse_number=str(row.get('B端熔丝编号', '')).strip() if pd.notna(row.get('B端熔丝编号')) else None,
-                            target_fuse_spec=str(row.get('B端熔丝规格', '')).strip() if pd.notna(row.get('B端熔丝规格')) else None,
-                            target_breaker_number=str(row.get('B端空开编号', '')).strip() if pd.notna(row.get('B端空开编号')) else None,
-                            target_breaker_spec=str(row.get('空开规格', '')).strip() if pd.notna(row.get('空开规格')) else None,
-                            target_device_location=str(row.get('B端设备位置（非动力设备）', '')).strip() if pd.notna(row.get('B端设备位置（非动力设备）')) else None,
-                            # 额定电流信息
-                            a_rated_current=str(row.get('A端额定电流', '')).strip() if pd.notna(row.get('A端额定电流')) else None,
-                            b_rated_current=str(row.get('B端额定电流', '')).strip() if pd.notna(row.get('B端额定电流')) else None,
-                            # 连接信息
-                            hierarchy_relation=str(row.get('上下级', '')).strip() if pd.notna(row.get('上下级')) else None,
-                            upstream_downstream=str(row.get('上下游', '')).strip() if pd.notna(row.get('上下游')) else None,
+                            # A绔俊鎭?
+                            source_fuse_number=str(row.get('A绔啍涓濈紪鍙?, '')).strip() if pd.notna(row.get('A绔啍涓濈紪鍙?)) else None,
+                            source_fuse_spec=str(row.get('A绔啍涓濊鏍?, '')).strip() if pd.notna(row.get('A绔啍涓濊鏍?)) else None,
+                            source_breaker_number=str(row.get('A绔┖寮€缂栧彿', '')).strip() if pd.notna(row.get('A绔┖寮€缂栧彿')) else None,
+                            source_breaker_spec=str(row.get('A绔┖寮€瑙勬牸', '')).strip() if pd.notna(row.get('A绔┖寮€瑙勬牸')) else None,
+                            # B绔俊鎭?
+                            target_fuse_number=str(row.get('B绔啍涓濈紪鍙?, '')).strip() if pd.notna(row.get('B绔啍涓濈紪鍙?)) else None,
+                            target_fuse_spec=str(row.get('B绔啍涓濊鏍?, '')).strip() if pd.notna(row.get('B绔啍涓濊鏍?)) else None,
+                            target_breaker_number=str(row.get('B绔┖寮€缂栧彿', '')).strip() if pd.notna(row.get('B绔┖寮€缂栧彿')) else None,
+                            target_breaker_spec=str(row.get('绌哄紑瑙勬牸', '')).strip() if pd.notna(row.get('绌哄紑瑙勬牸')) else None,
+                            target_device_location=str(row.get('B绔澶囦綅缃紙闈炲姩鍔涜澶囷級', '')).strip() if pd.notna(row.get('B绔澶囦綅缃紙闈炲姩鍔涜澶囷級')) else None,
+                            # 棰濆畾鐢垫祦淇℃伅
+                            a_rated_current=str(row.get('A绔瀹氱數娴?, '')).strip() if pd.notna(row.get('A绔瀹氱數娴?)) else None,
+                            b_rated_current=str(row.get('B绔瀹氱數娴?, '')).strip() if pd.notna(row.get('B绔瀹氱數娴?)) else None,
+                            # 杩炴帴淇℃伅
+                            hierarchy_relation=str(row.get('涓婁笅绾?, '')).strip() if pd.notna(row.get('涓婁笅绾?)) else None,
+                            upstream_downstream=str(row.get('涓婁笅娓?, '')).strip() if pd.notna(row.get('涓婁笅娓?)) else None,
                             connection_type=connection_type,
-                            cable_model=str(row.get('电缆型号', '')).strip() if pd.notna(row.get('电缆型号')) else None,
-                            # 附加信息
-                            source_device_photo=str(row.get('A端设备照片', '')).strip() if pd.notna(row.get('A端设备照片')) else None,
-                            target_device_photo=str(row.get('B端设备照片', '')).strip() if pd.notna(row.get('B端设备照片')) else None,
-                            remark=str(row.get('备注', '')).strip() if pd.notna(row.get('备注')) else None,
-                            # 安装日期（Excel中没有此字段，设置为None）
+                            cable_model=str(row.get('鐢电紗鍨嬪彿', '')).strip() if pd.notna(row.get('鐢电紗鍨嬪彿')) else None,
+                            # 闄勫姞淇℃伅
+                            source_device_photo=str(row.get('A绔澶囩収鐗?, '')).strip() if pd.notna(row.get('A绔澶囩収鐗?)) else None,
+                            target_device_photo=str(row.get('B绔澶囩収鐗?, '')).strip() if pd.notna(row.get('B绔澶囩収鐗?)) else None,
+                            remark=str(row.get('澶囨敞', '')).strip() if pd.notna(row.get('澶囨敞')) else None,
+                            # 瀹夎鏃ユ湡锛圗xcel涓病鏈夋瀛楁锛岃缃负None锛?
                             installation_date=None
                         )
 
                         db.add(connection)
                         sheet2_connections_count += 1
-                        print(f"  - 第 {index+2} 行：准备创建从 '{source_device_name}' 到 '{target_device_name}' 的连接")
-                        print(f"    源端口: {source_port}, 目标端口: {target_port}, 连接类型: {connection_type}")
+                        print(f"  - 绗?{index+2} 琛岋細鍑嗗鍒涘缓浠?'{source_device_name}' 鍒?'{target_device_name}' 鐨勮繛鎺?)
+                        print(f"    婧愮鍙? {source_port}, 鐩爣绔彛: {target_port}, 杩炴帴绫诲瀷: {connection_type}")
                         
                     except Exception as conn_error:
-                        skip_reason = f"处理连接失败: {conn_error}"
-                        print(f"  - 第 {index+2} 行：跳过连接，{skip_reason}")
+                        skip_reason = f"澶勭悊杩炴帴澶辫触: {conn_error}"
+                        print(f"  - 绗?{index+2} 琛岋細璺宠繃杩炴帴锛寋skip_reason}")
                         sheet2_skipped_rows.append((index+2, skip_reason))
                         continue
                 
-                # 提交Sheet2连接
+                # 鎻愪氦Sheet2杩炴帴
                 if sheet2_connections_count > 0:
-                    print(f"\n准备提交 {sheet2_connections_count} 个Sheet2连接到数据库...")
+                    print(f"\n鍑嗗鎻愪氦 {sheet2_connections_count} 涓猄heet2杩炴帴鍒版暟鎹簱...")
                     try:
                         db.commit()
-                        print("Sheet2连接提交成功！")
+                        print("Sheet2杩炴帴鎻愪氦鎴愬姛锛?)
                     except Exception as commit_error:
-                        print(f"Sheet2连接提交失败: {commit_error}")
+                        print(f"Sheet2杩炴帴鎻愪氦澶辫触: {commit_error}")
                         db.rollback()
                         raise commit_error
                 
-                # 生成详细的导入报告
-                print(f"\n=== Sheet2连接导入报告 ===")
-                print(f"总连接数: {len(df_connections)} 行")
-                print(f"成功导入: {sheet2_connections_count} 个连接")
-                print(f"跳过连接: {len(sheet2_skipped_rows)} 行")
+                # 鐢熸垚璇︾粏鐨勫鍏ユ姤鍛?
+                print(f"\n=== Sheet2杩炴帴瀵煎叆鎶ュ憡 ===")
+                print(f"鎬昏繛鎺ユ暟: {len(df_connections)} 琛?)
+                print(f"鎴愬姛瀵煎叆: {sheet2_connections_count} 涓繛鎺?)
+                print(f"璺宠繃杩炴帴: {len(sheet2_skipped_rows)} 琛?)
                 
                 if created_devices:
-                    print(f"\n自动创建的设备 ({len(created_devices)} 个):")
+                    print(f"\n鑷姩鍒涘缓鐨勮澶?({len(created_devices)} 涓?:")
                     for device_name in created_devices:
                         print(f"  + {device_name}")
-                    print("\n注意: 自动创建的设备信息不完整，请在设备管理页面完善相关信息。")
+                    print("\n娉ㄦ剰: 鑷姩鍒涘缓鐨勮澶囦俊鎭笉瀹屾暣锛岃鍦ㄨ澶囩鐞嗛〉闈㈠畬鍠勭浉鍏充俊鎭€?)
                 
                 if sheet2_skipped_rows:
-                    print(f"\n跳过的连接详情:")
+                    print(f"\n璺宠繃鐨勮繛鎺ヨ鎯?")
                     skip_reasons = {}
                     for row_num, reason in sheet2_skipped_rows:
                         if reason not in skip_reasons:
@@ -2545,57 +2238,57 @@ async def upload_excel(file: UploadFile = File(...), password: str = Form(...), 
                         skip_reasons[reason].append(row_num)
                     
                     for reason, rows in skip_reasons.items():
-                        print(f"  {reason}: {len(rows)} 行 (第{', '.join(map(str, rows[:3]))}行{'...' if len(rows) > 3 else ''})")
+                        print(f"  {reason}: {len(rows)} 琛?(绗瑊', '.join(map(str, rows[:3]))}琛寋'...' if len(rows) > 3 else ''})")
                 
-                # 计算导入成功率
+                # 璁＄畻瀵煎叆鎴愬姛鐜?
                 success_rate = (sheet2_connections_count / len(df_connections)) * 100 if len(df_connections) > 0 else 0
-                print(f"\n导入成功率: {success_rate:.1f}% ({sheet2_connections_count}/{len(df_connections)})")
+                print(f"\n瀵煎叆鎴愬姛鐜? {success_rate:.1f}% ({sheet2_connections_count}/{len(df_connections)})")
             
-            print(f"步骤 6: 完成。从Sheet2创建了 {sheet2_connections_count} 个连接")
+            print(f"姝ラ 6: 瀹屾垚銆備粠Sheet2鍒涘缓浜?{sheet2_connections_count} 涓繛鎺?)
             
         except Exception as sheet2_error:
-            print(f"处理Sheet2时出错: {sheet2_error}")
-            print("继续完成导入，忽略Sheet2错误")
+            print(f"澶勭悊Sheet2鏃跺嚭閿? {sheet2_error}")
+            print("缁х画瀹屾垚瀵煎叆锛屽拷鐣heet2閿欒")
         
-        # 最终统计
+        # 鏈€缁堢粺璁?
         final_connection_count = db.query(Connection).count()
         total_connections_created = connections_created_count + sheet2_connections_count
         
-        print("\n=== Excel文件增量更新处理成功 ===")
-        print(f"处理结果: 新建 {devices_created_count} 个设备, 更新 {devices_updated_count} 个设备")
-        print(f"连接创建: Sheet1创建 {connections_created_count} 个, Sheet2创建 {sheet2_connections_count} 个, 总计 {total_connections_created} 个")
-        print(f"数据库最终状态: {actual_device_count} 个设备, {final_connection_count} 个连接")
+        print("\n=== Excel鏂囦欢澧為噺鏇存柊澶勭悊鎴愬姛 ===")
+        print(f"澶勭悊缁撴灉: 鏂板缓 {devices_created_count} 涓澶? 鏇存柊 {devices_updated_count} 涓澶?)
+        print(f"杩炴帴鍒涘缓: Sheet1鍒涘缓 {connections_created_count} 涓? Sheet2鍒涘缓 {sheet2_connections_count} 涓? 鎬昏 {total_connections_created} 涓?)
+        print(f"鏁版嵁搴撴渶缁堢姸鎬? {actual_device_count} 涓澶? {final_connection_count} 涓繛鎺?)
 
     except Exception as e:
-        print(f"\n!!! 发生异常，开始回滚事务 !!!")
+        print(f"\n!!! 鍙戠敓寮傚父锛屽紑濮嬪洖婊氫簨鍔?!!!")
         try:
             db.rollback()
-            print("事务回滚成功")
+            print("浜嬪姟鍥炴粴鎴愬姛")
         except Exception as rollback_error:
-            print(f"事务回滚失败: {rollback_error}")
+            print(f"浜嬪姟鍥炴粴澶辫触: {rollback_error}")
             
-        error_message = f"处理Excel文件时出错: {e}"
-        print(f"\n=== Excel文件处理失败 ===")
-        print(f"错误类型: {type(e).__name__}")
-        print(f"错误信息: {error_message}")
-        print("\n完整错误堆栈:")
+        error_message = f"澶勭悊Excel鏂囦欢鏃跺嚭閿? {e}"
+        print(f"\n=== Excel鏂囦欢澶勭悊澶辫触 ===")
+        print(f"閿欒绫诲瀷: {type(e).__name__}")
+        print(f"閿欒淇℃伅: {error_message}")
+        print("\n瀹屾暣閿欒鍫嗘爤:")
         traceback.print_exc()
         print("=" * 50)
         
-        # 检查数据库状态
+        # 妫€鏌ユ暟鎹簱鐘舵€?
         try:
             final_device_count = db.query(Device).count()
             final_connection_count = db.query(Connection).count()
-            print(f"\n错误后数据库状态: {final_device_count} 个设备, {final_connection_count} 个连接")
+            print(f"\n閿欒鍚庢暟鎹簱鐘舵€? {final_device_count} 涓澶? {final_connection_count} 涓繛鎺?)
         except Exception as db_check_error:
-            print(f"无法检查数据库状态: {db_check_error}")
+            print(f"鏃犳硶妫€鏌ユ暟鎹簱鐘舵€? {db_check_error}")
             
         return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
 
-    print(f"\n上传处理完成，重定向到首页...")
+    print(f"\n涓婁紶澶勭悊瀹屾垚锛岄噸瀹氬悜鍒伴椤?..")
     return RedirectResponse(url="/", status_code=303)
 
-# 更新设备信息
+# 鏇存柊璁惧淇℃伅
 @app.post("/devices/{device_id}")
 async def update_device(
     device_id: int,
@@ -2611,24 +2304,24 @@ async def update_device(
     remark: str = Form(None),
     db: Session = Depends(get_db)
 ):
-    """更新设备信息（编辑功能不需要密码验证，因为在进入编辑页面时已验证）"""
+    """鏇存柊璁惧淇℃伅锛堢紪杈戝姛鑳戒笉闇€瑕佸瘑鐮侀獙璇侊紝鍥犱负鍦ㄨ繘鍏ョ紪杈戦〉闈㈡椂宸查獙璇侊級"""
     try:
-        # 获取要更新的设备
+        # 鑾峰彇瑕佹洿鏂扮殑璁惧
         device = db.query(Device).filter(Device.id == device_id).first()
         if not device:
-            error_message = "设备不存在。"
+            error_message = "璁惧涓嶅瓨鍦ㄣ€?
             return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
         
-        # 检查资产编号唯一性（排除当前设备）
+        # 妫€鏌ヨ祫浜х紪鍙峰敮涓€鎬э紙鎺掗櫎褰撳墠璁惧锛?
         existing_device = db.query(Device).filter(
             Device.asset_id == asset_id,
             Device.id != device_id
         ).first()
         if existing_device:
-            error_message = f"资产编号 {asset_id} 已存在，请使用其他编号。"
+            error_message = f"璧勪骇缂栧彿 {asset_id} 宸插瓨鍦紝璇蜂娇鐢ㄥ叾浠栫紪鍙枫€?
             return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
         
-        # 更新设备信息
+        # 鏇存柊璁惧淇℃伅
         device.asset_id = asset_id
         device.name = name
         device.station = station
@@ -2642,27 +2335,27 @@ async def update_device(
         
         db.commit()
         
-        success_message = f"设备 {name} 更新成功。"
+        success_message = f"璁惧 {name} 鏇存柊鎴愬姛銆?
         return RedirectResponse(url=f"/?success={quote(success_message)}", status_code=303)
         
     except Exception as e:
         db.rollback()
-        error_message = f"更新设备失败：{str(e)}"
+        error_message = f"鏇存柊璁惧澶辫触锛歿str(e)}"
         return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
 
-# 编辑设备页面
+# 缂栬緫璁惧椤甸潰
 @app.get("/edit/{device_id}")
 async def edit_device_page(device_id: int, password: str, request: Request, db: Session = Depends(get_db)):
-    """显示编辑设备页面"""
-    # 验证管理员密码
+    """鏄剧ず缂栬緫璁惧椤甸潰"""
+    # 楠岃瘉绠＄悊鍛樺瘑鐮?
     if not verify_admin_password(password):
-        error_message = "密码错误，无权限执行此操作。"
+        error_message = "瀵嗙爜閿欒锛屾棤鏉冮檺鎵ц姝ゆ搷浣溿€?
         return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
     
-    # 获取设备信息
+    # 鑾峰彇璁惧淇℃伅
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
-        error_message = "设备不存在。"
+        error_message = "璁惧涓嶅瓨鍦ㄣ€?
         return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
     
     return templates.TemplateResponse("edit_device.html", {
@@ -2670,43 +2363,43 @@ async def edit_device_page(device_id: int, password: str, request: Request, db: 
         "device": device
     })
 
-# 删除设备
+# 鍒犻櫎璁惧
 @app.delete("/devices/{device_id}")
 async def delete_device(device_id: int, request: Request, db: Session = Depends(get_db)):
-    """删除设备"""
+    """鍒犻櫎璁惧"""
     try:
-        # 获取请求体中的密码
+        # 鑾峰彇璇锋眰浣撲腑鐨勫瘑鐮?
         body = await request.json()
         password = body.get("password")
         
-        # 验证管理员密码
+        # 楠岃瘉绠＄悊鍛樺瘑鐮?
         if not verify_admin_password(password):
-            raise HTTPException(status_code=403, detail="密码错误，无权限执行此操作。")
+            raise HTTPException(status_code=403, detail="瀵嗙爜閿欒锛屾棤鏉冮檺鎵ц姝ゆ搷浣溿€?)
         
-        # 获取要删除的设备
+        # 鑾峰彇瑕佸垹闄ょ殑璁惧
         device = db.query(Device).filter(Device.id == device_id).first()
         if not device:
-            raise HTTPException(status_code=404, detail="设备不存在。")
+            raise HTTPException(status_code=404, detail="璁惧涓嶅瓨鍦ㄣ€?)
         
         device_name = device.name
         
-        # 删除相关的连接记录
+        # 鍒犻櫎鐩稿叧鐨勮繛鎺ヨ褰?
         db.query(Connection).filter(
             (Connection.source_device_id == device_id) | 
             (Connection.target_device_id == device_id)
         ).delete()
         
-        # 删除设备
+        # 鍒犻櫎璁惧
         db.delete(device)
         db.commit()
         
-        return {"message": f"设备 {device_name} 删除成功。"}
+        return {"message": f"璁惧 {device_name} 鍒犻櫎鎴愬姛銆?}
         
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"删除设备失败：{str(e)}")
+        raise HTTPException(status_code=500, detail=f"鍒犻櫎璁惧澶辫触锛歿str(e)}")
 
 @app.post("/devices")
 async def create_device(
@@ -2723,16 +2416,16 @@ async def create_device(
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    # 验证管理员密码
+    # 楠岃瘉绠＄悊鍛樺瘑鐮?
     if not verify_admin_password(password):
-        error_message = "密码错误，无权限执行此操作。"
+        error_message = "瀵嗙爜閿欒锛屾棤鏉冮檺鎵ц姝ゆ搷浣溿€?
         return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
     
-    # 增加资产编号唯一性校验
+    # 澧炲姞璧勪骇缂栧彿鍞竴鎬ф牎楠?
     existing_device = db.query(Device).filter(Device.asset_id == asset_id).first()
     if existing_device:
-        # 如果存在，则重定向回主页并显示错误信息
-        error_message = f"创建失败：资产编号 '{asset_id}' 已存在。"
+        # 濡傛灉瀛樺湪锛屽垯閲嶅畾鍚戝洖涓婚〉骞舵樉绀洪敊璇俊鎭?
+        error_message = f"鍒涘缓澶辫触锛氳祫浜х紪鍙?'{asset_id}' 宸插瓨鍦ㄣ€?
         return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
 
     new_device = Device(
@@ -2750,124 +2443,125 @@ async def create_device(
     return RedirectResponse(url="/", status_code=303)
 
 def _adjust_color_brightness(hex_color: str, factor: float) -> str:
-    """调整颜色亮度"""
+    """璋冩暣棰滆壊浜害"""
     try:
-        # 移除 # 符号
+        # 绉婚櫎 # 绗﹀彿
         hex_color = hex_color.lstrip('#')
         
-        # 转换为 RGB
+        # 杞崲涓?RGB
         r = int(hex_color[0:2], 16)
         g = int(hex_color[2:4], 16)
         b = int(hex_color[4:6], 16)
         
-        # 调整亮度
+        # 璋冩暣浜害
         r = min(255, max(0, int(r * factor)))
         g = min(255, max(0, int(g * factor)))
         b = min(255, max(0, int(b * factor)))
         
-        # 转换回十六进制
+        # 杞崲鍥炲崄鍏繘鍒?
         return f"#{r:02x}{g:02x}{b:02x}"
     except:
-        return hex_color  # 如果转换失败，返回原色
+        return hex_color  # 濡傛灉杞崲澶辫触锛岃繑鍥炲師鑹?
 
 
 def _get_device_lifecycle_status(device: Device, db: Session) -> str:
-    """计算设备的生命周期状态 - 复用已有的完整实现逻辑"""
+    """璁＄畻璁惧鐨勭敓鍛藉懆鏈熺姸鎬?- 澶嶇敤宸叉湁鐨勫畬鏁村疄鐜伴€昏緫"""
     try:
         from datetime import datetime
         import re
         
-        # 查找对应的生命周期规则
+        # 鏌ユ壘瀵瑰簲鐨勭敓鍛藉懆鏈熻鍒?
         rule = db.query(LifecycleRule).filter(
             LifecycleRule.device_type == device.device_type,
             LifecycleRule.is_active == "true"
         ).first()
         
         if not rule:
-            return "未配置规则"
+            return "鏈厤缃鍒?
         
-        # 解析投产日期
+        # 瑙ｆ瀽鎶曚骇鏃ユ湡
         if not device.commission_date:
-            return "投产日期未知"
+            return "鎶曚骇鏃ユ湡鏈煡"
             
         try:
-            # 计算设备年龄（年）
+            # 璁＄畻璁惧骞撮緞锛堝勾锛?
             age_years = (datetime.now().date() - device.commission_date).days / 365.25
             
-            # 根据规则判断状态
+            # 鏍规嵁瑙勫垯鍒ゆ柇鐘舵€?
             if age_years < rule.suggested_scrap_age * 0.7:
-                return "在用"
+                return "鍦ㄧ敤"
             elif age_years < rule.suggested_scrap_age:
-                return "即将报废"
+                return "鍗冲皢鎶ュ簾"
             else:
-                return "已超期"
+                return "宸茶秴鏈?
         except Exception as e:
-            print(f"计算设备年龄失败: {str(e)}")
-            return "计算失败"
+            print(f"璁＄畻璁惧骞撮緞澶辫触: {str(e)}")
+            return "璁＄畻澶辫触"
     except Exception as e:
-        print(f"计算生命周期状态失败: {str(e)}")
-        return "未知"
+        print(f"璁＄畻鐢熷懡鍛ㄦ湡鐘舵€佸け璐? {str(e)}")
+        return "鏈煡"
 
 
 
 
 
 def _get_device_lifecycle_status(device: Device, db: Session) -> str:
-    """计算设备的生命周期状态 - 复用已有的完整实现逻辑"""
+    """璁＄畻璁惧鐨勭敓鍛藉懆鏈熺姸鎬?- 澶嶇敤宸叉湁鐨勫畬鏁村疄鐜伴€昏緫"""
     try:
         from datetime import datetime
         import re
         
-        # 查找对应的生命周期规则
+        # 鏌ユ壘瀵瑰簲鐨勭敓鍛藉懆鏈熻鍒?
         rule = db.query(LifecycleRule).filter(
             LifecycleRule.device_type == device.device_type,
             LifecycleRule.is_active == "true"
         ).first()
         
-        # 如果没有找到规则，返回未知
+        # 濡傛灉娌℃湁鎵惧埌瑙勫垯锛岃繑鍥炴湭鐭?
         if not rule:
-            return "未知"
+            return "鏈煡"
             
-        # 计算设备年龄
+        # 璁＄畻璁惧骞撮緞
         if not device.commission_date:
-            return "未知"
+            return "鏈煡"
             
         age_years = (datetime.now().date() - device.commission_date).days / 365.25
         
-        # 根据规则判断状态
+        # 鏍规嵁瑙勫垯鍒ゆ柇鐘舵€?
         if age_years < rule.suggested_scrap_age * 0.7:
-            return "在用"
+            return "鍦ㄧ敤"
         elif age_years < rule.suggested_scrap_age:
-            return "即将报废"
+            return "鍗冲皢鎶ュ簾"
         else:
-            return "已超期"
+            return "宸茶秴鏈?
             
     except Exception as e:
-        print(f"计算生命周期状态失败: {str(e)}")
-        return "未知"
+        print(f"璁＄畻鐢熷懡鍛ㄦ湡鐘舵€佸け璐? {str(e)}")
+        return "鏈煡"
 
 
-# 新增API路径：/api/power-chain/{device_id} - 与/graph_data/{device_id}功能相同，保持向后兼容
+# 鏂板API璺緞锛?api/power-chain/{device_id} - 涓?graph_data/{device_id}鍔熻兘鐩稿悓锛屼繚鎸佸悜鍚庡吋瀹?
 
 
-# 新增API路径：/api/power-chain/{device_id} - 与/graph_data/{device_id}功能相同，保持向后兼容
+# 鏂板API璺緞锛?api/power-chain/{device_id} - 涓?graph_data/{device_id}鍔熻兘鐩稿悓锛屼繚鎸佸悜鍚庡吋瀹?
+@app.get("/graph_data/{device_id}")
 @app.get("/api/power-chain/{device_id}")
 async def get_graph_data(
     device_id: int,
-    level: str = Query("device", regex="^(device|port)$", description="显示级别：device=设备级，port=端口级"),
-    layout_type: str = Query("standard", regex="^(standard|bus)$", description="布局类型：standard=标准布局，bus=总线式布局"),
-    connection_type: str = Query(None, description="连接类型筛选条件"),
-    station: str = Query(None, description="站点筛选条件"),
-    device_type: str = Query(None, description="设备类型筛选条件"),
-    show_critical_only: bool = Query(False, description="是否只显示关键设备"),
-    only_selected_device: bool = Query(False, description="是否只显示选中设备"),
-    group_size: int = Query(1, description="总线式布局时每组端口数量"),
+    level: str = Query("device", regex="^(device|port)$", description="鏄剧ず绾у埆锛歞evice=璁惧绾э紝port=绔彛绾?),
+    layout_type: str = Query("standard", regex="^(standard|bus)$", description="甯冨眬绫诲瀷锛歴tandard=鏍囧噯甯冨眬锛宐us=鎬荤嚎寮忓竷灞€"),
+    connection_type: str = Query(None, description="杩炴帴绫诲瀷绛涢€夋潯浠?),
+    station: str = Query(None, description="绔欑偣绛涢€夋潯浠?),
+    device_type: str = Query(None, description="璁惧绫诲瀷绛涢€夋潯浠?),
+    show_critical_only: bool = Query(False, description="鏄惁鍙樉绀哄叧閿澶?),
+    only_selected_device: bool = Query(False, description="鏄惁鍙樉绀洪€変腑璁惧"),
+    group_size: int = Query(1, description="鎬荤嚎寮忓竷灞€鏃舵瘡缁勭鍙ｆ暟閲?),
     db: Session = Depends(get_db)
 ):
-    """获取拓扑图数据，按照用户需求格式化"""
+    """鑾峰彇鎷撴墤鍥炬暟鎹紝鎸夌収鐢ㄦ埛闇€姹傛牸寮忓寲"""
     logger.info(f"/graph_data called: device_id={device_id}, level={level}, layout_type={layout_type}, connection_type={connection_type}, station={station}, device_type={device_type}, show_critical_only={show_critical_only}, only_selected_device={only_selected_device}, group_size={group_size}")
     
-    # 查找选中的设备
+    # 鏌ユ壘閫変腑鐨勮澶?
     selected_device = db.query(Device).filter(Device.id == device_id).first()
     if not selected_device:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -2876,17 +2570,17 @@ async def get_graph_data(
     edges = []
     processed_device_ids = set()
     
-    # 添加选中设备节点
+    # 娣诲姞閫変腑璁惧鑺傜偣
     lifecycle_status = _get_device_lifecycle_status(selected_device, db)
     
-    # 修复设备名称显示格式：按照设计规范只显示设备名称
+    # 淇璁惧鍚嶇О鏄剧ず鏍煎紡锛氭寜鐓ц璁¤鑼冨彧鏄剧ず璁惧鍚嶇О
     device_label = selected_device.name
     
-    # 记录设备名称格式化日志
+    # 璁板綍璁惧鍚嶇О鏍煎紡鍖栨棩蹇?
     topology_error_tracker.log_error(
         category=ErrorCategory.NODE_RENDERING,
         level=ErrorLevel.INFO,
-        message=f"设备节点标签格式化完成",
+        message=f"璁惧鑺傜偣鏍囩鏍煎紡鍖栧畬鎴?,
         context={
             "device_id": selected_device.id,
             "device_name": selected_device.name,
@@ -2899,49 +2593,49 @@ async def get_graph_data(
     node_data = {
         "id": selected_device.id,
         "label": device_label,
-        "title": f"""资产编号: {selected_device.asset_id}\n名称: {selected_device.name}\n设备类型: {selected_device.device_type or 'N/A'}\n站点: {selected_device.station or 'N/A'}\n型号: {selected_device.model or 'N/A'}\n位置: {selected_device.location or 'N/A'}\n额定容量: {selected_device.power_rating or 'N/A'}\n生产厂家: {selected_device.vendor or 'N/A'}\n投产时间: {selected_device.commission_date or 'N/A'}\n生命周期状态: {lifecycle_status}""",
-        "level": 0,  # 选中设备在第一层
+        "title": f"""璧勪骇缂栧彿: {selected_device.asset_id}\n鍚嶇О: {selected_device.name}\n璁惧绫诲瀷: {selected_device.device_type or 'N/A'}\n绔欑偣: {selected_device.station or 'N/A'}\n鍨嬪彿: {selected_device.model or 'N/A'}\n浣嶇疆: {selected_device.location or 'N/A'}\n棰濆畾瀹归噺: {selected_device.power_rating or 'N/A'}\n鐢熶骇鍘傚: {selected_device.vendor or 'N/A'}\n鎶曚骇鏃堕棿: {selected_device.commission_date or 'N/A'}\n鐢熷懡鍛ㄦ湡鐘舵€? {lifecycle_status}""",
+        "level": 0,  # 閫変腑璁惧鍦ㄧ涓€灞?
         "device_type": selected_device.device_type,
         "station": selected_device.station
     }
     nodes.append(node_data)
     processed_device_ids.add(selected_device.id)
 
-    # 获取与选中设备直接连接的所有连接
+    # 鑾峰彇涓庨€変腑璁惧鐩存帴杩炴帴鐨勬墍鏈夎繛鎺?
     direct_connections = list(selected_device.target_connections) + list(selected_device.source_connections)
     
-    # 处理每个直接连接
+    # 澶勭悊姣忎釜鐩存帴杩炴帴
     for conn in direct_connections:
-        # 应用连接筛选条件
+        # 搴旂敤杩炴帴绛涢€夋潯浠?
         if not _should_include_connection(conn, connection_type):
             continue
             
-        # 跳过无效连接（连接类型为None或空的连接）
+        # 璺宠繃鏃犳晥杩炴帴锛堣繛鎺ョ被鍨嬩负None鎴栫┖鐨勮繛鎺ワ級
         if not conn.connection_type or conn.connection_type == "None":
             continue
             
-        # 确定连接的对端设备
+        # 纭畾杩炴帴鐨勫绔澶?
         if conn.source_device_id == selected_device.id:
-            # 选中设备是源设备，对端是目标设备
+            # 閫変腑璁惧鏄簮璁惧锛屽绔槸鐩爣璁惧
             connected_device = conn.target_device
             is_selected_source = True
         else:
-            # 选中设备是目标设备，对端是源设备
+            # 閫変腑璁惧鏄洰鏍囪澶囷紝瀵圭鏄簮璁惧
             connected_device = conn.source_device
             is_selected_source = False
             
-        # 检查对端设备是否存在且符合筛选条件
+        # 妫€鏌ュ绔澶囨槸鍚﹀瓨鍦ㄤ笖绗﹀悎绛涢€夋潯浠?
         if not connected_device or not _should_include_device(connected_device, station, device_type, show_critical_only):
             continue
             
-        # 避免重复添加设备节点
+        # 閬垮厤閲嶅娣诲姞璁惧鑺傜偣
         if connected_device.id not in processed_device_ids:
             if level == "port":
-                # 端口级显示：为连接设备创建端口节点
+                # 绔彛绾ф樉绀猴細涓鸿繛鎺ヨ澶囧垱寤虹鍙ｈ妭鐐?
                 if layout_type == "bus":
-                    # 总线式布局
+                    # 鎬荤嚎寮忓竷灞€
                     if not only_selected_device:
-                        # 双端视图：为对端设备也创建总线与端口节点
+                        # 鍙岀瑙嗗浘锛氫负瀵圭璁惧涔熷垱寤烘€荤嚎涓庣鍙ｈ妭鐐?
                         bus_data = _create_bus_topology_nodes(connected_device, db, group_size=group_size)
                         for node in bus_data['bus_nodes']:
                             nodes.append(node)
@@ -2949,46 +2643,46 @@ async def get_graph_data(
                             nodes.append(node)
                         edges.extend(bus_data['bus_port_edges'])
                     else:
-                        # 仅A端视图：不为对端设备创建节点，由选中设备侧的“对端合并端口”承担展示
+                        # 浠匒绔鍥撅細涓嶄负瀵圭璁惧鍒涘缓鑺傜偣锛岀敱閫変腑璁惧渚х殑鈥滃绔悎骞剁鍙ｂ€濇壙鎷呭睍绀?
                         pass
                 else:
-                    # 标准布局：端口节点已在前面统一创建，此处不再重复创建
+                    # 鏍囧噯甯冨眬锛氱鍙ｈ妭鐐瑰凡鍦ㄥ墠闈㈢粺涓€鍒涘缓锛屾澶勪笉鍐嶉噸澶嶅垱寤?
                     pass
             else:
-                # 设备级显示：为连接设备创建节点
+                # 璁惧绾ф樉绀猴細涓鸿繛鎺ヨ澶囧垱寤鸿妭鐐?
                 lifecycle_status = _get_device_lifecycle_status(connected_device, db)
                 
-                # 修复连接设备名称显示格式：只显示设备名称
+                # 淇杩炴帴璁惧鍚嶇О鏄剧ず鏍煎紡锛氬彧鏄剧ず璁惧鍚嶇О
                 connected_device_label = connected_device.name
                 
                 node_data = {
                     "id": connected_device.id,
                     "label": connected_device_label,
-                    "title": f"""资产编号: {connected_device.asset_id}\n名称: {connected_device.name}\n设备类型: {connected_device.device_type or 'N/A'}\n站点: {connected_device.station or 'N/A'}\n型号: {connected_device.model or 'N/A'}\n位置: {connected_device.location or 'N/A'}\n额定容量: {connected_device.power_rating or 'N/A'}\n生产厂家: {connected_device.vendor or 'N/A'}\n投产时间: {connected_device.commission_date or 'N/A'}\n生命周期状态: {lifecycle_status}""",
-                    "level": 1,  # 连接设备在第二层
+                    "title": f"""璧勪骇缂栧彿: {connected_device.asset_id}\n鍚嶇О: {connected_device.name}\n璁惧绫诲瀷: {connected_device.device_type or 'N/A'}\n绔欑偣: {connected_device.station or 'N/A'}\n鍨嬪彿: {connected_device.model or 'N/A'}\n浣嶇疆: {connected_device.location or 'N/A'}\n棰濆畾瀹归噺: {connected_device.power_rating or 'N/A'}\n鐢熶骇鍘傚: {connected_device.vendor or 'N/A'}\n鎶曚骇鏃堕棿: {connected_device.commission_date or 'N/A'}\n鐢熷懡鍛ㄦ湡鐘舵€? {lifecycle_status}""",
+                    "level": 1,  # 杩炴帴璁惧鍦ㄧ浜屽眰
                     "device_type": connected_device.device_type,
                     "station": connected_device.station
                 }
                 nodes.append(node_data)
             processed_device_ids.add(connected_device.id)
             
-        # 创建连接边，根据上下游字段确定箭头方向
+        # 鍒涘缓杩炴帴杈癸紝鏍规嵁涓婁笅娓稿瓧娈电‘瀹氱澶存柟鍚?
         if level == "port":
-            # 端口级连接
+            # 绔彛绾ц繛鎺?
             if layout_type == "bus":
-                # 总线式布局：创建端口到端口的连接
+                # 鎬荤嚎寮忓竷灞€锛氬垱寤虹鍙ｅ埌绔彛鐨勮繛鎺?
                 direction = "upstream" if is_selected_source else "downstream"
                 bus_port_edges = _create_bus_port_edges(conn, direction)
                 edges.extend(bus_port_edges)
             else:
-                # 标准布局：创建标准端口连接
+                # 鏍囧噯甯冨眬锛氬垱寤烘爣鍑嗙鍙ｈ繛鎺?
                 direction = "upstream" if is_selected_source else "downstream"
                 port_edges = _create_port_edges(conn, direction)
                 edges.extend(port_edges)
         else:
-            # 设备级连接：根据上下游字段确定箭头方向
-            if conn.upstream_downstream == "上游":
-                # 上游表示电流从source流向target
+            # 璁惧绾ц繛鎺ワ細鏍规嵁涓婁笅娓稿瓧娈电‘瀹氱澶存柟鍚?
+            if conn.upstream_downstream == "涓婃父":
+                # 涓婃父琛ㄧず鐢垫祦浠巗ource娴佸悜target
                 edge_data = {
                     "from": conn.source_device_id,
                     "to": conn.target_device_id,
@@ -3000,8 +2694,8 @@ async def get_graph_data(
                     "remark": conn.remark,
                     "connection_id": conn.id
                 }
-            elif conn.upstream_downstream == "下游":
-                # 下游表示电流从target流向source
+            elif conn.upstream_downstream == "涓嬫父":
+                # 涓嬫父琛ㄧず鐢垫祦浠巘arget娴佸悜source
                 edge_data = {
                     "from": conn.target_device_id,
                     "to": conn.source_device_id,
@@ -3014,7 +2708,7 @@ async def get_graph_data(
                     "connection_id": conn.id
                 }
             else:
-                # 没有明确的上下游关系，使用默认方向（从source到target）
+                # 娌℃湁鏄庣‘鐨勪笂涓嬫父鍏崇郴锛屼娇鐢ㄩ粯璁ゆ柟鍚戯紙浠巗ource鍒皌arget锛?
                 edge_data = {
                     "from": conn.source_device_id,
                     "to": conn.target_device_id,
@@ -3026,20 +2720,20 @@ async def get_graph_data(
                     "remark": conn.remark,
                     "connection_id": conn.id
                 }
-            # 过滤无效连接与缺失端点，统一箭头方向
+            # 杩囨护鏃犳晥杩炴帴涓庣己澶辩鐐癸紝缁熶竴绠ご鏂瑰悜
             _label = (edge_data.get("label") or "").strip()
             _from = edge_data.get("from")
             _to = edge_data.get("to")
-            if _label and _label.lower() not in ("nan", "none", "null", "空", "未知") and _from and _to:
+            if _label and _label.lower() not in ("nan", "none", "null", "绌?, "鏈煡") and _from and _to:
                 edge_data["arrows"] = "to"
                 edges.append(edge_data)
             else:
-                logger.debug(f"跳过无效设备级连接: label={_label}, from={_from}, to={_to}, connection_id={edge_data.get('connection_id')}")
+                logger.debug(f"璺宠繃鏃犳晥璁惧绾ц繛鎺? label={_label}, from={_from}, to={_to}, connection_id={edge_data.get('connection_id')}")
                 
-    # 构建返回数据
+    # 鏋勫缓杩斿洖鏁版嵁
     response_data = {"nodes": nodes, "edges": edges, "level": level}
     
-    # 如果是总线式布局，添加额外的元数据
+    # 濡傛灉鏄€荤嚎寮忓竷灞€锛屾坊鍔犻澶栫殑鍏冩暟鎹?
     if level == "port" and layout_type == "bus":
         response_data["layout_type"] = "bus"
         response_data["metadata"] = {
@@ -3055,29 +2749,29 @@ async def get_graph_data(
 
 
 def _get_device_lifecycle_status(device: Device, db: Session) -> str:
-    """计算设备的生命周期状态 - 复用已有的完整实现逻辑"""
+    """璁＄畻璁惧鐨勭敓鍛藉懆鏈熺姸鎬?- 澶嶇敤宸叉湁鐨勫畬鏁村疄鐜伴€昏緫"""
     try:
         from datetime import datetime
         import re
         
-        # 查找对应的生命周期规则
+        # 鏌ユ壘瀵瑰簲鐨勭敓鍛藉懆鏈熻鍒?
         rule = db.query(LifecycleRule).filter(
             LifecycleRule.device_type == device.device_type,
             LifecycleRule.is_active == "true"
         ).first()
         
         if not rule:
-            return "未配置规则"
+            return "鏈厤缃鍒?
         
-        # 解析投产日期
+        # 瑙ｆ瀽鎶曚骇鏃ユ湡
         if not device.commission_date:
-            return "投产日期未填写"
+            return "鎶曚骇鏃ユ湡鏈～鍐?
         
         commission_date = None
         date_str = device.commission_date.strip()
         current_date = datetime.now()
         
-        # 处理特殊格式：YYYYMM (如 202312)
+        # 澶勭悊鐗规畩鏍煎紡锛歒YYYMM (濡?202312)
         if re.match(r'^\d{6}$', date_str):
             try:
                 year = int(date_str[:4])
@@ -3086,7 +2780,7 @@ def _get_device_lifecycle_status(device: Device, db: Session) -> str:
             except ValueError:
                 pass
         
-        # 如果特殊格式解析失败，尝试标准格式
+        # 濡傛灉鐗规畩鏍煎紡瑙ｆ瀽澶辫触锛屽皾璇曟爣鍑嗘牸寮?
         if not commission_date:
             date_formats = [
                 "%Y-%m-%d",
@@ -3101,10 +2795,10 @@ def _get_device_lifecycle_status(device: Device, db: Session) -> str:
             for fmt in date_formats:
                 try:
                     if fmt == "%Y":
-                        # 只有年份的情况，默认为该年的1月1日
+                        # 鍙湁骞翠唤鐨勬儏鍐碉紝榛樿涓鸿骞寸殑1鏈?鏃?
                         commission_date = datetime.strptime(device.commission_date, fmt).replace(month=1, day=1)
                     elif fmt in ["%Y-%m", "%Y/%m", "%Y.%m"]:
-                        # 只有年月的情况，默认为该月的1日
+                        # 鍙湁骞存湀鐨勬儏鍐碉紝榛樿涓鸿鏈堢殑1鏃?
                         commission_date = datetime.strptime(device.commission_date, fmt).replace(day=1)
                     else:
                         commission_date = datetime.strptime(device.commission_date, fmt)
@@ -3113,44 +2807,44 @@ def _get_device_lifecycle_status(device: Device, db: Session) -> str:
                     continue
         
         if not commission_date:
-            return "投产日期格式无法识别"
+            return "鎶曚骇鏃ユ湡鏍煎紡鏃犳硶璇嗗埆"
         
-        # 计算服役时间和剩余时间
+        # 璁＄畻鏈嶅焦鏃堕棿鍜屽墿浣欐椂闂?
         days_in_service = (current_date - commission_date).days
         lifecycle_days = rule.lifecycle_years * 365
         remaining_days = lifecycle_days - days_in_service
         warning_days = rule.warning_months * 30
         
-        # 确定生命周期状态
+        # 纭畾鐢熷懡鍛ㄦ湡鐘舵€?
         if remaining_days < 0:
-            return f"已超期 {abs(remaining_days)} 天"
+            return f"宸茶秴鏈?{abs(remaining_days)} 澶?
         elif remaining_days <= warning_days:
-            return f"临近超限，剩余 {remaining_days} 天"
+            return f"涓磋繎瓒呴檺锛屽墿浣?{remaining_days} 澶?
         else:
-            return f"正常，剩余 {remaining_days} 天"
+            return f"姝ｅ父锛屽墿浣?{remaining_days} 澶?
             
     except Exception as e:
-        return "计算错误"
+        return "璁＄畻閿欒"
 
 
 def _should_include_device(device: Device, station: Optional[str], device_type: Optional[str], show_critical_only: bool) -> bool:
-    """判断设备是否应该包含在拓扑图中"""
-    # 基础数据验证：过滤掉名称无效的设备
+    """鍒ゆ柇璁惧鏄惁搴旇鍖呭惈鍦ㄦ嫇鎵戝浘涓?"""
+    # 鍩虹鏁版嵁楠岃瘉锛氳繃婊ゆ帀鍚嶇О鏃犳晥鐨勮澶?
     if not device.name or device.name.strip() == "" or device.name.lower() in ["nan", "null", "none"]:
         return False
     
-    # 站点筛选
+    # 绔欑偣绛涢€?
     if station and device.station != station:
         return False
     
-    # 设备类型筛选
+    # 璁惧绫诲瀷绛涢€?
     if device_type and device.device_type != device_type:
         return False
     
-    # 关键设备筛选（这里可以根据业务需求定义关键设备的判断逻辑）
+    # 鍏抽敭璁惧绛涢€夛紙杩欓噷鍙互鏍规嵁涓氬姟闇€姹傚畾涔夊叧閿澶囩殑鍒ゆ柇閫昏緫锛?
     if show_critical_only:
-        # 示例：将发电机组、UPS、变压器等视为关键设备
-        critical_types = ["发电机组", "UPS", "变压器", "高压配电柜", "低压配电柜"]
+        # 绀轰緥锛氬皢鍙戠數鏈虹粍銆乁PS銆佸彉鍘嬪櫒绛夎涓哄叧閿澶?
+        critical_types = ["鍙戠數鏈虹粍", "UPS", "鍙樺帇鍣?, "楂樺帇閰嶇數鏌?, "浣庡帇閰嶇數鏌?]
         if device.device_type not in critical_types:
             return False
     
@@ -3158,8 +2852,8 @@ def _should_include_device(device: Device, station: Optional[str], device_type: 
 
 
 def _should_include_connection(connection: Connection, connection_type: Optional[str]) -> bool:
-    """判断连接是否应该包含在拓扑图中"""
-    # 连接类型筛选
+    """鍒ゆ柇杩炴帴鏄惁搴旇鍖呭惈鍦ㄦ嫇鎵戝浘涓?"""
+    # 杩炴帴绫诲瀷绛涢€?
     if connection_type and connection.connection_type != connection_type:
         return False
     
@@ -3167,133 +2861,133 @@ def _should_include_connection(connection: Connection, connection_type: Optional
 
 
 def _create_port_nodes(device: Device, db: Session, level: int = 1) -> list:
-    """为设备创建端口级节点 - 标准模式
-    只显示选中设备的端口和直接连接的对端设备端口
+    """涓鸿澶囧垱寤虹鍙ｇ骇鑺傜偣 - 鏍囧噯妯″紡
+    鍙樉绀洪€変腑璁惧鐨勭鍙ｅ拰鐩存帴杩炴帴鐨勫绔澶囩鍙?
     """
     port_nodes = []
     
-    # 获取设备的所有连接，提取端口信息
+    # 鑾峰彇璁惧鐨勬墍鏈夎繛鎺ワ紝鎻愬彇绔彛淇℃伅
     connections = db.query(Connection).filter(
         or_(Connection.source_device_id == device.id, Connection.target_device_id == device.id)
     ).all()
     
-    # 收集选中设备的端口信息
+    # 鏀堕泦閫変腑璁惧鐨勭鍙ｄ俊鎭?
     selected_device_ports = set()
     connected_device_ports = set()
     
     for conn in connections:
-        # 选中设备的端口
+        # 閫変腑璁惧鐨勭鍙?
         if conn.source_device_id == device.id:
             if conn.source_fuse_number:
-                selected_device_ports.add(("熔丝", conn.source_fuse_number, conn))
+                selected_device_ports.add(("鐔斾笣", conn.source_fuse_number, conn))
             if conn.source_breaker_number:
-                selected_device_ports.add(("空开", conn.source_breaker_number, conn))
+                selected_device_ports.add(("绌哄紑", conn.source_breaker_number, conn))
         if conn.target_device_id == device.id:
             if conn.target_fuse_number:
-                selected_device_ports.add(("熔丝", conn.target_fuse_number, conn))
+                selected_device_ports.add(("鐔斾笣", conn.target_fuse_number, conn))
             if conn.target_breaker_number:
-                selected_device_ports.add(("空开", conn.target_breaker_number, conn))
+                selected_device_ports.add(("绌哄紑", conn.target_breaker_number, conn))
         
-        # 对端设备的端口（只显示直接连接的）
+        # 瀵圭璁惧鐨勭鍙ｏ紙鍙樉绀虹洿鎺ヨ繛鎺ョ殑锛?
         if conn.source_device_id == device.id:
-            # 当前设备是源设备，收集目标设备端口
+            # 褰撳墠璁惧鏄簮璁惧锛屾敹闆嗙洰鏍囪澶囩鍙?
             target_device = conn.target_device
             if target_device:
                 if conn.target_fuse_number:
-                    connected_device_ports.add((target_device, "熔丝", conn.target_fuse_number, conn))
+                    connected_device_ports.add((target_device, "鐔斾笣", conn.target_fuse_number, conn))
                 if conn.target_breaker_number:
-                    connected_device_ports.add((target_device, "空开", conn.target_breaker_number, conn))
+                    connected_device_ports.add((target_device, "绌哄紑", conn.target_breaker_number, conn))
         elif conn.target_device_id == device.id:
-            # 当前设备是目标设备，收集源设备端口
+            # 褰撳墠璁惧鏄洰鏍囪澶囷紝鏀堕泦婧愯澶囩鍙?
             source_device = conn.source_device
             if source_device:
                 if conn.source_fuse_number:
-                    connected_device_ports.add((source_device, "熔丝", conn.source_fuse_number, conn))
+                    connected_device_ports.add((source_device, "鐔斾笣", conn.source_fuse_number, conn))
                 if conn.source_breaker_number:
-                    connected_device_ports.add((source_device, "空开", conn.source_breaker_number, conn))
+                    connected_device_ports.add((source_device, "绌哄紑", conn.source_breaker_number, conn))
     
-    # 创建选中设备的端口节点
+    # 鍒涘缓閫変腑璁惧鐨勭鍙ｈ妭鐐?
     for port_type, port_number, conn in selected_device_ports:
         port_nodes.append({
             "id": f"{device.id}_{port_type}_{port_number}",
-            "label": f"{port_type}-{port_number}",  # 简化端口名称，移除设备名称
-            "title": f"""<b>设备:</b> {device.name}<br>
-                         <b>端口:</b> {port_type}-{port_number}<br>
-                         <b>设备类型:</b> {device.device_type or 'N/A'}""",
-            "level": level,  # 端口节点在 level 层
+            "label": f"{port_type}-{port_number}",  # 绠€鍖栫鍙ｅ悕绉帮紝绉婚櫎璁惧鍚嶇О
+            "title": f"""<b>璁惧:</b> {device.name}<br>
+                         <b>绔彛:</b> {port_type}-{port_number}<br>
+                         <b>璁惧绫诲瀷:</b> {device.device_type or 'N/A'}""",
+            "level": level,  # 绔彛鑺傜偣鍦?level 灞?
             "device_id": device.id,
-            "device_name": device.name,  # 新增：设备名称，便于前端三行显示
-            "station": device.station,   # 新增：站点信息
-            "port_name": f"{port_type}-{port_number}",  # 新增：端口名（简化）
+            "device_name": device.name,  # 鏂板锛氳澶囧悕绉帮紝渚夸簬鍓嶇涓夎鏄剧ず
+            "station": device.station,   # 鏂板锛氱珯鐐逛俊鎭?
+            "port_name": f"{port_type}-{port_number}",  # 鏂板锛氱鍙ｅ悕锛堢畝鍖栵級
             "port_type": port_type,
             "port_number": port_number,
-            "node_type": "selected_device_port",  # 标记为选中设备端口
-            "color": {"background": "#E6F3FF", "border": "#4169E1"}  # 端口使用蓝色
+            "node_type": "selected_device_port",  # 鏍囪涓洪€変腑璁惧绔彛
+            "color": {"background": "#E6F3FF", "border": "#4169E1"}  # 绔彛浣跨敤钃濊壊
         })
     
-    # 创建对端设备的端口节点
+    # 鍒涘缓瀵圭璁惧鐨勭鍙ｈ妭鐐?
     for connected_device, port_type, port_number, conn in connected_device_ports:
         port_nodes.append({
             "id": f"{connected_device.id}_{port_type}_{port_number}",
-            "label": f"{connected_device.name}·{port_type}-{port_number}",  # 对端标签采用“设备名·端口名”
-            "title": f"""<b>设备:</b> {connected_device.name}<br>
-                         <b>端口:</b> {port_type}-{port_number}<br>
-                         <b>设备类型:</b> {connected_device.device_type or 'N/A'}<br>
-                         <b>连接到:</b> {device.name}""",
-            "level": level + 1,  # 对端端口节点在 level + 1 层
+            "label": f"{connected_device.name}路{port_type}-{port_number}",  # 瀵圭鏍囩閲囩敤鈥滆澶囧悕路绔彛鍚嶁€?
+            "title": f"""<b>璁惧:</b> {connected_device.name}<br>
+                         <b>绔彛:</b> {port_type}-{port_number}<br>
+                         <b>璁惧绫诲瀷:</b> {connected_device.device_type or 'N/A'}<br>
+                         <b>杩炴帴鍒?</b> {device.name}""",
+            "level": level + 1,  # 瀵圭绔彛鑺傜偣鍦?level + 1 灞?
             "device_id": connected_device.id,
-            "device_name": connected_device.name,  # 新增
-            "station": connected_device.station,    # 新增
-            "port_name": f"{port_type}-{port_number}",  # 新增
+            "device_name": connected_device.name,  # 鏂板
+            "station": connected_device.station,    # 鏂板
+            "port_name": f"{port_type}-{port_number}",  # 鏂板
             "port_type": port_type,
             "port_number": port_number,
-            "node_type": "connected_device_port"  # 标记为对端设备端口
+            "node_type": "connected_device_port"  # 鏍囪涓哄绔澶囩鍙?
         })
     
     return port_nodes
 
 
 def _create_port_edges(connection: Connection, direction: str) -> list:
-    """为连接创建端口级边 - 标准模式
-    根据upstream_downstream字段确定箭头方向
+    """涓鸿繛鎺ュ垱寤虹鍙ｇ骇杈?- 鏍囧噯妯″紡
+    鏍规嵁upstream_downstream瀛楁纭畾绠ご鏂瑰悜
     """
     edges = []
     
-    # 创建端口间的连接
+    # 鍒涘缓绔彛闂寸殑杩炴帴
     source_ports = []
     target_ports = []
     
-    # 使用新的端口ID格式（中文）
+    # 浣跨敤鏂扮殑绔彛ID鏍煎紡锛堜腑鏂囷級
     if connection.source_fuse_number:
-        source_ports.append(f"{connection.source_device_id}_熔丝_{connection.source_fuse_number}")
+        source_ports.append(f"{connection.source_device_id}_鐔斾笣_{connection.source_fuse_number}")
     if connection.source_breaker_number:
-        source_ports.append(f"{connection.source_device_id}_空开_{connection.source_breaker_number}")
+        source_ports.append(f"{connection.source_device_id}_绌哄紑_{connection.source_breaker_number}")
     if connection.target_fuse_number:
-        target_ports.append(f"{connection.target_device_id}_熔丝_{connection.target_fuse_number}")
+        target_ports.append(f"{connection.target_device_id}_鐔斾笣_{connection.target_fuse_number}")
     if connection.target_breaker_number:
-        target_ports.append(f"{connection.target_device_id}_空开_{connection.target_breaker_number}")
+        target_ports.append(f"{connection.target_device_id}_绌哄紑_{connection.target_breaker_number}")
     
-    # 根据upstream_downstream字段确定箭头方向
-    if connection.upstream_downstream == "上游":
-        # 上游表示电流从source流向target
+    # 鏍规嵁upstream_downstream瀛楁纭畾绠ご鏂瑰悜
+    if connection.upstream_downstream == "涓婃父":
+        # 涓婃父琛ㄧず鐢垫祦浠巗ource娴佸悜target
         arrow_direction = "to"
         from_ports = source_ports
         to_ports = target_ports
-    elif connection.upstream_downstream == "下游":
-        # 下游表示电流从target流向source
+    elif connection.upstream_downstream == "涓嬫父":
+        # 涓嬫父琛ㄧず鐢垫祦浠巘arget娴佸悜source
         arrow_direction = "to"
         from_ports = target_ports
         to_ports = source_ports
     else:
-        # 没有明确方向，使用默认方向（source到target）
+        # 娌℃湁鏄庣‘鏂瑰悜锛屼娇鐢ㄩ粯璁ゆ柟鍚戯紙source鍒皌arget锛?
         arrow_direction = "to"
         from_ports = source_ports
         to_ports = target_ports
     
-    # 创建端口间的连接边（过滤无效标签和端点）
+    # 鍒涘缓绔彛闂寸殑杩炴帴杈癸紙杩囨护鏃犳晥鏍囩鍜岀鐐癸級
     _edge_label = (connection.cable_model or connection.connection_type or "").strip()
-    if not _edge_label or _edge_label.lower() in ("nan", "none", "null", "空", "未知"):
-        logger.debug(f"跳过无效端口级连接: label={_edge_label}, conn_id={connection.id}")
+    if not _edge_label or _edge_label.lower() in ("nan", "none", "null", "绌?, "鏈煡"):
+        logger.debug(f"璺宠繃鏃犳晥绔彛绾ц繛鎺? label={_edge_label}, conn_id={connection.id}")
         return edges
     for from_port in from_ports:
         for to_port in to_ports:
@@ -3319,7 +3013,7 @@ def _create_port_edges(connection: Connection, direction: str) -> list:
 
 @app.get("/api/port-selection/{device_id}")
 async def get_port_selection_options(device_id: int, db: Session = Depends(get_db)):
-    """获取端口选择选项"""
+    """鑾峰彇绔彛閫夋嫨閫夐」"""
     try:
         from port_topology_service import PortTopologyService
         service = PortTopologyService(db)
@@ -3329,7 +3023,7 @@ async def get_port_selection_options(device_id: int, db: Session = Depends(get_d
         topology_error_tracker.log_error(
             category=ErrorCategory.API_ERROR,
             level=ErrorLevel.ERROR,
-            message=f"端口选择选项API调用失败: {str(e)}",
+            message=f"绔彛閫夋嫨閫夐」API璋冪敤澶辫触: {str(e)}",
             context={"device_id": device_id},
             exception=e
         )
@@ -3337,24 +3031,33 @@ async def get_port_selection_options(device_id: int, db: Session = Depends(get_d
 
 @app.get("/graph", response_class=HTMLResponse)
 async def get_topology_graph_page(request: Request, db: Session = Depends(get_db)):
-    """拓扑图页面 - 显示所有设备供用户选择"""
+    """鎷撴墤鍥鹃〉闈?- 鏄剧ず鎵€鏈夎澶囦緵鐢ㄦ埛閫夋嫨"""
     devices = db.query(Device).all()
     return templates.TemplateResponse("graph.html", {"request": request, "devices": devices})
 
 
+@app.get("/topology")
+async def get_fixture_topology_page(request: Request):
+    """
+    涓洪伩鍏嶉〉闈㈡贩娣嗭紝/topology 缁熶竴閲嶅畾鍚戝埌涓诲叆鍙?/graph銆?
+    鍘熸嫇鎵戝鑸紙topology.html锛変粛淇濈暀鍦ㄤ唬鐮佷腑浣滀负瀹為獙椤碉紝浣嗕笉鍐嶄綔涓洪粯璁ゅ叆鍙ｃ€?
+    """
+    return templates.TemplateResponse("topology.html", {"request": request})
+
+
 @app.get("/graph/{device_id}", response_class=HTMLResponse)
 async def get_power_chain_graph(request: Request, device_id: int, db: Session = Depends(get_db)):
-    """特定设备的拓扑图页面 - 兼容旧版本URL"""
+    """鐗瑰畾璁惧鐨勬嫇鎵戝浘椤甸潰 - 鍏煎鏃х増鏈琔RL"""
     devices = db.query(Device).all()
     return templates.TemplateResponse("graph.html", {"request": request, "devices": devices, "selected_device_id": device_id})
 
 
-# --- 设备生命周期规则管理 API ---
+# --- 璁惧鐢熷懡鍛ㄦ湡瑙勫垯绠＄悊 API ---
 
 @app.get("/api/lifecycle-rules")
 async def get_lifecycle_rules(db: Session = Depends(get_db)):
     """
-    获取所有生命周期规则
+    鑾峰彇鎵€鏈夌敓鍛藉懆鏈熻鍒?
     """
     try:
         rules = db.query(LifecycleRule).all()
@@ -3372,7 +3075,7 @@ async def get_lifecycle_rules(db: Session = Depends(get_db)):
             } for rule in rules]
         })
     except Exception as e:
-        print(f"获取生命周期规则失败: {e}")
+        print(f"鑾峰彇鐢熷懡鍛ㄦ湡瑙勫垯澶辫触: {e}")
         return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
 
@@ -3382,28 +3085,28 @@ async def create_lifecycle_rule(
     lifecycle_years: int = Form(...),
     warning_months: int = Form(6),
     description: str = Form(""),
-    password: str = Form(...),  # 添加密码参数
+    password: str = Form(...),  # 娣诲姞瀵嗙爜鍙傛暟
     db: Session = Depends(get_db)
 ):
     """
-    创建生命周期规则
+    鍒涘缓鐢熷懡鍛ㄦ湡瑙勫垯
     """
     try:
-        # 验证管理员密码
+        # 楠岃瘉绠＄悊鍛樺瘑鐮?
         if not verify_admin_password(password):
-            return JSONResponse(content={"success": False, "message": "密码错误"}, status_code=401)
+            return JSONResponse(content={"success": False, "message": "瀵嗙爜閿欒"}, status_code=401)
         
         from datetime import datetime
         
-        # 检查设备类型是否已存在规则
+        # 妫€鏌ヨ澶囩被鍨嬫槸鍚﹀凡瀛樺湪瑙勫垯
         existing_rule = db.query(LifecycleRule).filter(LifecycleRule.device_type == device_type).first()
         if existing_rule:
             return JSONResponse(content={
                 "success": False, 
-                "message": f"设备类型 '{device_type}' 的生命周期规则已存在"
+                "message": f"璁惧绫诲瀷 '{device_type}' 鐨勭敓鍛藉懆鏈熻鍒欏凡瀛樺湪"
             }, status_code=400)
         
-        # 创建新规则
+        # 鍒涘缓鏂拌鍒?
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         new_rule = LifecycleRule(
             device_type=device_type,
@@ -3421,7 +3124,7 @@ async def create_lifecycle_rule(
         
         return JSONResponse(content={
             "success": True,
-            "message": "生命周期规则创建成功",
+            "message": "鐢熷懡鍛ㄦ湡瑙勫垯鍒涘缓鎴愬姛",
             "data": {
                 "id": new_rule.id,
                 "device_type": new_rule.device_type,
@@ -3436,7 +3139,7 @@ async def create_lifecycle_rule(
 
 
 
-        print(f"创建生命周期规则失败: {e}")
+        print(f"鍒涘缓鐢熷懡鍛ㄦ湡瑙勫垯澶辫触: {e}")
         return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
 
@@ -3448,24 +3151,24 @@ async def update_lifecycle_rule(
     warning_months: int = Form(6),
     description: str = Form(""),
     is_active: str = Form("true"),
-    password: str = Form(...),  # 添加密码参数
+    password: str = Form(...),  # 娣诲姞瀵嗙爜鍙傛暟
     db: Session = Depends(get_db)
 ):
     """
-    更新生命周期规则
+    鏇存柊鐢熷懡鍛ㄦ湡瑙勫垯
     """
     try:
-        # 验证管理员密码
+        # 楠岃瘉绠＄悊鍛樺瘑鐮?
         if not verify_admin_password(password):
-            return JSONResponse(content={"success": False, "message": "密码错误"}, status_code=401)
+            return JSONResponse(content={"success": False, "message": "瀵嗙爜閿欒"}, status_code=401)
         
         from datetime import datetime
         
         rule = db.query(LifecycleRule).filter(LifecycleRule.id == rule_id).first()
         if not rule:
-            return JSONResponse(content={"success": False, "message": "规则不存在"}, status_code=404)
+            return JSONResponse(content={"success": False, "message": "瑙勫垯涓嶅瓨鍦?}, status_code=404)
         
-        # 检查设备类型是否与其他规则冲突
+        # 妫€鏌ヨ澶囩被鍨嬫槸鍚︿笌鍏朵粬瑙勫垯鍐茬獊
         existing_rule = db.query(LifecycleRule).filter(
             LifecycleRule.device_type == device_type,
             LifecycleRule.id != rule_id
@@ -3473,10 +3176,10 @@ async def update_lifecycle_rule(
         if existing_rule:
             return JSONResponse(content={
                 "success": False, 
-                "message": f"设备类型 '{device_type}' 的生命周期规则已存在"
+                "message": f"璁惧绫诲瀷 '{device_type}' 鐨勭敓鍛藉懆鏈熻鍒欏凡瀛樺湪"
             }, status_code=400)
         
-        # 更新规则
+        # 鏇存柊瑙勫垯
         rule.device_type = device_type
         rule.lifecycle_years = lifecycle_years
         rule.warning_months = warning_months
@@ -3488,64 +3191,64 @@ async def update_lifecycle_rule(
         
         return JSONResponse(content={
             "success": True,
-            "message": "生命周期规则更新成功"
+            "message": "鐢熷懡鍛ㄦ湡瑙勫垯鏇存柊鎴愬姛"
         })
         
     except Exception as e:
         db.rollback()
-        print(f"更新生命周期规则失败: {e}")
+        print(f"鏇存柊鐢熷懡鍛ㄦ湡瑙勫垯澶辫触: {e}")
         return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
 
 @app.delete("/api/lifecycle-rules/{rule_id}")
 async def delete_lifecycle_rule(rule_id: int, password: str = Form(...), db: Session = Depends(get_db)):
     """
-    删除生命周期规则
+    鍒犻櫎鐢熷懡鍛ㄦ湡瑙勫垯
     """
     try:
-        # 验证管理员密码
+        # 楠岃瘉绠＄悊鍛樺瘑鐮?
         if not verify_admin_password(password):
-            return JSONResponse(content={"success": False, "message": "密码错误"}, status_code=401)
+            return JSONResponse(content={"success": False, "message": "瀵嗙爜閿欒"}, status_code=401)
         
         rule = db.query(LifecycleRule).filter(LifecycleRule.id == rule_id).first()
         if not rule:
-            return JSONResponse(content={"success": False, "message": "规则不存在"}, status_code=404)
+            return JSONResponse(content={"success": False, "message": "瑙勫垯涓嶅瓨鍦?}, status_code=404)
         
         db.delete(rule)
         db.commit()
         
         return JSONResponse(content={
             "success": True,
-            "message": "生命周期规则删除成功"
+            "message": "鐢熷懡鍛ㄦ湡瑙勫垯鍒犻櫎鎴愬姛"
         })
         
     except Exception as e:
         db.rollback()
-        print(f"删除生命周期规则失败: {e}")
+        print(f"鍒犻櫎鐢熷懡鍛ㄦ湡瑙勫垯澶辫触: {e}")
         return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
 
 @app.get("/api/devices")
 async def get_devices_api(
-    page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(50, ge=1, le=200, description="每页数量"),
+    page: int = Query(1, ge=1, description="椤电爜"),
+    page_size: int = Query(50, ge=1, le=200, description="姣忛〉鏁伴噺"),
     db: Session = Depends(get_db)
 ):
     """
-    获取设备列表API接口
+    鑾峰彇璁惧鍒楄〃API鎺ュ彛
     """
     try:
-        # 构建查询
+        # 鏋勫缓鏌ヨ
         query = db.query(Device)
         
-        # 计算总数
+        # 璁＄畻鎬绘暟
         total = query.count()
         
-        # 应用分页
+        # 搴旂敤鍒嗛〉
         offset = (page - 1) * page_size
         devices = query.offset(offset).limit(page_size).all()
         
-        # 构建响应数据
+        # 鏋勫缓鍝嶅簲鏁版嵁
         result = []
         for device in devices:
             result.append({
@@ -3574,24 +3277,24 @@ async def get_devices_api(
         })
         
     except Exception as e:
-        print(f"获取设备列表失败: {e}")
+        print(f"鑾峰彇璁惧鍒楄〃澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取设备列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇璁惧鍒楄〃澶辫触: {str(e)}")
 
 
 @app.get("/api/topology/filter-options")
 async def get_filter_options(db: Session = Depends(get_db)):
     """
-    获取拓扑图筛选选项
-    返回设备类型、连接类型、局站等筛选选项
+    鑾峰彇鎷撴墤鍥剧瓫閫夐€夐」
+    杩斿洖璁惧绫诲瀷銆佽繛鎺ョ被鍨嬨€佸眬绔欑瓑绛涢€夐€夐」
     """
     try:
-        # 获取所有局站
+        # 鑾峰彇鎵€鏈夊眬绔?
         stations = db.query(Device.station).filter(Device.station.isnot(None)).filter(Device.station != '').distinct().all()
         station_list = [station[0] for station in stations if station[0]]
         station_list.sort()
         
-        # 获取所有连接类型
+        # 鑾峰彇鎵€鏈夎繛鎺ョ被鍨?
         connection_types = db.query(Connection.connection_type).filter(Connection.connection_type.isnot(None)).filter(Connection.connection_type != '').distinct().all()
         connection_type_list = [conn_type[0] for conn_type in connection_types if conn_type[0]]
         connection_type_list.sort()
@@ -3599,16 +3302,16 @@ async def get_filter_options(db: Session = Depends(get_db)):
         return JSONResponse(content={
             "success": True,
             "data": {
-                "device_types": STANDARD_DEVICE_TYPES,  # 使用新的标准设备类型列表
+                "device_types": STANDARD_DEVICE_TYPES,  # 浣跨敤鏂扮殑鏍囧噯璁惧绫诲瀷鍒楄〃
                 "connection_types": connection_type_list,
                 "stations": station_list
             }
         })
         
     except Exception as e:
-        print(f"获取筛选选项失败: {e}")
+        print(f"鑾峰彇绛涢€夐€夐」澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取筛选选项失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇绛涢€夐€夐」澶辫触: {str(e)}")
 
 
 @app.get("/api/devices/lifecycle-status")
@@ -3617,14 +3320,14 @@ async def get_devices_lifecycle_status(
     db: Session = Depends(get_db)
 ):
     """
-    获取设备生命周期状态
-    status_filter: normal(正常), warning(临近超限), expired(已超期), all(全部)
+    鑾峰彇璁惧鐢熷懡鍛ㄦ湡鐘舵€?
+    status_filter: normal(姝ｅ父), warning(涓磋繎瓒呴檺), expired(宸茶秴鏈?, all(鍏ㄩ儴)
     """
     try:
         from datetime import datetime, timedelta
         import re
         
-        # 获取所有设备和规则
+        # 鑾峰彇鎵€鏈夎澶囧拰瑙勫垯
         devices = db.query(Device).all()
         rules = {rule.device_type: rule for rule in db.query(LifecycleRule).filter(LifecycleRule.is_active == "true").all()}
         
@@ -3632,10 +3335,10 @@ async def get_devices_lifecycle_status(
         current_date = datetime.now()
         
         for device in devices:
-            # 查找对应的生命周期规则
+            # 鏌ユ壘瀵瑰簲鐨勭敓鍛藉懆鏈熻鍒?
             rule = rules.get(device.device_type)
             if not rule:
-                # 没有规则的设备标记为未知状态
+                # 娌℃湁瑙勫垯鐨勮澶囨爣璁颁负鏈煡鐘舵€?
                 device_info = {
                     "id": device.id,
                     "asset_id": device.asset_id,
@@ -3645,7 +3348,7 @@ async def get_devices_lifecycle_status(
                     "vendor": device.vendor,
                     "commission_date": device.commission_date,
                     "lifecycle_status": "unknown",
-                    "lifecycle_status_text": "未配置规则",
+                    "lifecycle_status_text": "鏈厤缃鍒?,
                     "days_in_service": None,
                     "remaining_days": None,
                     "rule_years": None
@@ -3654,7 +3357,7 @@ async def get_devices_lifecycle_status(
                     result_devices.append(device_info)
                 continue
             
-            # 解析投产日期
+            # 瑙ｆ瀽鎶曚骇鏃ユ湡
             if not device.commission_date:
                 device_info = {
                     "id": device.id,
@@ -3665,7 +3368,7 @@ async def get_devices_lifecycle_status(
                     "vendor": device.vendor,
                     "commission_date": device.commission_date,
                     "lifecycle_status": "unknown",
-                    "lifecycle_status_text": "投产日期未填写",
+                    "lifecycle_status_text": "鎶曚骇鏃ユ湡鏈～鍐?,
                     "days_in_service": None,
                     "remaining_days": None,
                     "rule_years": rule.lifecycle_years
@@ -3674,11 +3377,11 @@ async def get_devices_lifecycle_status(
                     result_devices.append(device_info)
                 continue
             
-            # 尝试解析多种日期格式
+            # 灏濊瘯瑙ｆ瀽澶氱鏃ユ湡鏍煎紡
             commission_date = None
             date_str = device.commission_date.strip()
             
-            # 处理特殊格式：YYYYMM (如 202312)
+            # 澶勭悊鐗规畩鏍煎紡锛歒YYYMM (濡?202312)
             if re.match(r'^\d{6}$', date_str):
                 try:
                     year = int(date_str[:4])
@@ -3687,7 +3390,7 @@ async def get_devices_lifecycle_status(
                 except ValueError:
                     pass
             
-            # 如果特殊格式解析失败，尝试标准格式
+            # 濡傛灉鐗规畩鏍煎紡瑙ｆ瀽澶辫触锛屽皾璇曟爣鍑嗘牸寮?
             if not commission_date:
                 date_formats = [
                     "%Y-%m-%d",
@@ -3702,10 +3405,10 @@ async def get_devices_lifecycle_status(
                 for fmt in date_formats:
                     try:
                         if fmt == "%Y":
-                            # 只有年份的情况，默认为该年的1月1日
+                            # 鍙湁骞翠唤鐨勬儏鍐碉紝榛樿涓鸿骞寸殑1鏈?鏃?
                             commission_date = datetime.strptime(device.commission_date, fmt).replace(month=1, day=1)
                         elif fmt in ["%Y-%m", "%Y/%m", "%Y.%m"]:
-                            # 只有年月的情况，默认为该月的1日
+                            # 鍙湁骞存湀鐨勬儏鍐碉紝榛樿涓鸿鏈堢殑1鏃?
                             commission_date = datetime.strptime(device.commission_date, fmt).replace(day=1)
                         else:
                             commission_date = datetime.strptime(device.commission_date, fmt)
@@ -3723,7 +3426,7 @@ async def get_devices_lifecycle_status(
                     "vendor": device.vendor,
                     "commission_date": device.commission_date,
                     "lifecycle_status": "unknown",
-                    "lifecycle_status_text": "投产日期格式无法识别",
+                    "lifecycle_status_text": "鎶曚骇鏃ユ湡鏍煎紡鏃犳硶璇嗗埆",
                     "days_in_service": None,
                     "remaining_days": None,
                     "rule_years": rule.lifecycle_years
@@ -3732,22 +3435,22 @@ async def get_devices_lifecycle_status(
                     result_devices.append(device_info)
                 continue
             
-            # 计算服役时间和剩余时间
+            # 璁＄畻鏈嶅焦鏃堕棿鍜屽墿浣欐椂闂?
             days_in_service = (current_date - commission_date).days
             lifecycle_days = rule.lifecycle_years * 365
             remaining_days = lifecycle_days - days_in_service
             warning_days = rule.warning_months * 30
             
-            # 确定生命周期状态
+            # 纭畾鐢熷懡鍛ㄦ湡鐘舵€?
             if remaining_days < 0:
                 lifecycle_status = "expired"
-                lifecycle_status_text = f"已超期 {abs(remaining_days)} 天"
+                lifecycle_status_text = f"宸茶秴鏈?{abs(remaining_days)} 澶?
             elif remaining_days <= warning_days:
                 lifecycle_status = "warning"
-                lifecycle_status_text = f"临近超限，剩余 {remaining_days} 天"
+                lifecycle_status_text = f"涓磋繎瓒呴檺锛屽墿浣?{remaining_days} 澶?
             else:
                 lifecycle_status = "normal"
-                lifecycle_status_text = f"正常，剩余 {remaining_days} 天"
+                lifecycle_status_text = f"姝ｅ父锛屽墿浣?{remaining_days} 澶?
             
             device_info = {
                 "id": device.id,
@@ -3764,11 +3467,11 @@ async def get_devices_lifecycle_status(
                 "rule_years": rule.lifecycle_years
             }
             
-            # 根据筛选条件添加设备
+            # 鏍规嵁绛涢€夋潯浠舵坊鍔犺澶?
             if not status_filter or status_filter == "all" or status_filter == lifecycle_status:
                 result_devices.append(device_info)
         
-        # 统计信息
+        # 缁熻淇℃伅
         total_count = len(result_devices)
         normal_count = len([d for d in result_devices if d["lifecycle_status"] == "normal"])
         warning_count = len([d for d in result_devices if d["lifecycle_status"] == "warning"])
@@ -3788,7 +3491,7 @@ async def get_devices_lifecycle_status(
         })
         
     except Exception as e:
-        print(f"获取设备生命周期状态失败: {e}")
+        print(f"鑾峰彇璁惧鐢熷懡鍛ㄦ湡鐘舵€佸け璐? {e}")
         traceback.print_exc()
         return JSONResponse(content={"success": False, "message": str(e)}, status_code=500)
 
@@ -3796,15 +3499,15 @@ async def get_devices_lifecycle_status(
 @app.get("/test-route")
 async def test_route():
     """
-    测试路由
+    娴嬭瘯璺敱
     """
-    print("=== 测试路由被调用 ===")
-    return {"message": "测试路由正常工作", "timestamp": "updated"}
+    print("=== 娴嬭瘯璺敱琚皟鐢?===")
+    return {"message": "娴嬭瘯璺敱姝ｅ父宸ヤ綔", "timestamp": "updated"}
 
 @app.get("/debug-routes")
 async def debug_routes():
     """
-    调试路由 - 显示所有已注册的路由
+    璋冭瘯璺敱 - 鏄剧ず鎵€鏈夊凡娉ㄥ唽鐨勮矾鐢?
     """
     routes = []
     for route in app.routes:
@@ -3819,79 +3522,79 @@ async def debug_routes():
 @app.get("/debug-lifecycle")
 async def debug_lifecycle():
     """
-    调试生命周期路由
+    璋冭瘯鐢熷懡鍛ㄦ湡璺敱
     """
-    print("=== 调试生命周期路由被调用 ===")
-    return {"message": "调试路由正常工作", "status": "ok"}
+    print("=== 璋冭瘯鐢熷懡鍛ㄦ湡璺敱琚皟鐢?===")
+    return {"message": "璋冭瘯璺敱姝ｅ父宸ヤ綔", "status": "ok"}
 
 @app.post("/api/verify-password")
 async def verify_password(request: Request):
     """
-    验证管理员密码
+    楠岃瘉绠＄悊鍛樺瘑鐮?
     """
     try:
         data = await request.json()
         password = data.get("password", "")
         
         if verify_admin_password(password):
-            return {"success": True, "message": "密码验证成功"}
+            return {"success": True, "message": "瀵嗙爜楠岃瘉鎴愬姛"}
         else:
-            return {"success": False, "message": "密码错误"}
+            return {"success": False, "message": "瀵嗙爜閿欒"}
     except Exception as e:
         print(f"Error verifying password: {e}")
-        return {"success": False, "message": "验证失败"}
+        return {"success": False, "message": "楠岃瘉澶辫触"}
 
 @app.get("/lifecycle-management", response_class=HTMLResponse)
 async def lifecycle_management_page(request: Request):
     """
-    生命周期管理页面
+    鐢熷懡鍛ㄦ湡绠＄悊椤甸潰
     """
-    print("=== 访问生命周期管理页面 ===")
-    print(f"请求URL: {request.url}")
-    print(f"请求方法: {request.method}")
+    print("=== 璁块棶鐢熷懡鍛ㄦ湡绠＄悊椤甸潰 ===")
+    print(f"璇锋眰URL: {request.url}")
+    print(f"璇锋眰鏂规硶: {request.method}")
     try:
-        print("正在渲染模板...")
+        print("姝ｅ湪娓叉煋妯℃澘...")
         response = templates.TemplateResponse("lifecycle_management.html", {"request": request})
-        print("模板渲染成功")
+        print("妯℃澘娓叉煋鎴愬姛")
         return response
     except Exception as e:
-        print(f"生命周期管理页面错误: {e}")
+        print(f"鐢熷懡鍛ㄦ湡绠＄悊椤甸潰閿欒: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/connections", response_class=HTMLResponse)
 async def connections_page(request: Request):
     """
-    连接管理页面
+    杩炴帴绠＄悊椤甸潰
     """
-    print("=== 访问连接管理页面 ===")
-    print(f"请求URL: {request.url}")
-    print(f"请求方法: {request.method}")
+    print("=== 璁块棶杩炴帴绠＄悊椤甸潰 ===")
+    print(f"璇锋眰URL: {request.url}")
+    print(f"璇锋眰鏂规硶: {request.method}")
     try:
-        print("正在渲染模板...")
+        print("姝ｅ湪娓叉煋妯℃澘...")
         response = templates.TemplateResponse("connections.html", {"request": request})
-        print("模板渲染成功")
+        print("妯℃澘娓叉煋鎴愬姛")
         return response
     except Exception as e:
-        print(f"连接管理页面错误: {e}")
+        print(f"杩炴帴绠＄悊椤甸潰閿欒: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics_page(request: Request):
     """
-    统计分析页面
+    缁熻鍒嗘瀽椤甸潰
     """
-    print("=== 访问统计分析页面 ===")
-    print(f"请求URL: {request.url}")
-    print(f"请求方法: {request.method}")
+    print("=== 璁块棶缁熻鍒嗘瀽椤甸潰 ===")
+    print(f"璇锋眰URL: {request.url}")
+    print(f"璇锋眰鏂规硶: {request.method}")
     try:
-        print("正在渲染统计分析模板...")
+        print("姝ｅ湪娓叉煋缁熻鍒嗘瀽妯℃澘...")
         response = templates.TemplateResponse("analytics.html", {"request": request})
-        print("统计分析模板渲染成功")
+        print("缁熻鍒嗘瀽妯℃澘娓叉煋鎴愬姛")
         return response
     except Exception as e:
-        print(f"统计分析页面错误: {e}")
+        print(f"缁熻鍒嗘瀽椤甸潰閿欒: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -3907,18 +3610,18 @@ async def export_devices(
     db: Session = Depends(get_db)
 ):
     """
-    导出设备数据为Excel文件
-    支持全量导出和筛选导出，需要管理员密码验证
+    瀵煎嚭璁惧鏁版嵁涓篍xcel鏂囦欢
+    鏀寔鍏ㄩ噺瀵煎嚭鍜岀瓫閫夊鍑猴紝闇€瑕佺鐞嗗憳瀵嗙爜楠岃瘉
     """
     try:
-        # 验证管理员密码
+        # 楠岃瘉绠＄悊鍛樺瘑鐮?
         if not verify_admin_password(password):
-            raise HTTPException(status_code=401, detail="密码错误，无权限导出数据")
+            raise HTTPException(status_code=401, detail="瀵嗙爜閿欒锛屾棤鏉冮檺瀵煎嚭鏁版嵁")
         
-        # 根据导出范围查询设备数据
+        # 鏍规嵁瀵煎嚭鑼冨洿鏌ヨ璁惧鏁版嵁
         query = db.query(Device)
         
-        # 如果是筛选导出，应用筛选条件
+        # 濡傛灉鏄瓫閫夊鍑猴紝搴旂敤绛涢€夋潯浠?
         if export_range == "filtered":
             if station_filter:
                 query = query.filter(Device.station.ilike(f"%{station_filter}%"))
@@ -3929,26 +3632,26 @@ async def export_devices(
             if vendor_filter:
                 query = query.filter(Device.vendor.ilike(f"%{vendor_filter}%"))
             if lifecycle_filter:
-                # 这里需要根据生命周期状态筛选，暂时跳过复杂的生命周期逻辑
+                # 杩欓噷闇€瑕佹牴鎹敓鍛藉懆鏈熺姸鎬佺瓫閫夛紝鏆傛椂璺宠繃澶嶆潅鐨勭敓鍛藉懆鏈熼€昏緫
                 pass
         
         devices = query.all()
         
         if not devices:
-            raise HTTPException(status_code=404, detail="没有找到设备数据")
+            raise HTTPException(status_code=404, detail="娌℃湁鎵惧埌璁惧鏁版嵁")
         
-        # 创建Excel工作簿
+        # 鍒涘缓Excel宸ヤ綔绨?
         wb = Workbook()
         ws = wb.active
-        ws.title = "设备列表"
+        ws.title = "璁惧鍒楄〃"
         
-        # 定义表头
+        # 瀹氫箟琛ㄥご
         headers = [
-            "ID", "资产编号", "设备名称", "局站", "设备类型", "设备型号", 
-            "所在位置", "额定容量", "设备生产厂家", "投产日期", "备注"
+            "ID", "璧勪骇缂栧彿", "璁惧鍚嶇О", "灞€绔?, "璁惧绫诲瀷", "璁惧鍨嬪彿", 
+            "鎵€鍦ㄤ綅缃?, "棰濆畾瀹归噺", "璁惧鐢熶骇鍘傚", "鎶曚骇鏃ユ湡", "澶囨敞"
         ]
         
-        # 设置表头样式
+        # 璁剧疆琛ㄥご鏍峰紡
         header_font = Font(bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         header_alignment = Alignment(horizontal="center", vertical="center")
@@ -3959,7 +3662,7 @@ async def export_devices(
             bottom=Side(style="thin")
         )
         
-        # 写入表头
+        # 鍐欏叆琛ㄥご
         for col, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col, value=header)
             cell.font = header_font
@@ -3967,7 +3670,7 @@ async def export_devices(
             cell.alignment = header_alignment
             cell.border = border
         
-        # 写入设备数据
+        # 鍐欏叆璁惧鏁版嵁
         for row, device in enumerate(devices, 2):
             data = [
                 device.id,
@@ -3988,11 +3691,11 @@ async def export_devices(
                 cell.border = border
                 cell.alignment = Alignment(horizontal="left", vertical="center")
                 
-                # 设置斑马纹效果
+                # 璁剧疆鏂戦┈绾规晥鏋?
                 if row % 2 == 0:
                     cell.fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
         
-        # 自动调整列宽
+        # 鑷姩璋冩暣鍒楀
         for column in ws.columns:
             max_length = 0
             column_letter = column[0].column_letter
@@ -4002,34 +3705,34 @@ async def export_devices(
                         max_length = len(str(cell.value))
                 except:
                     pass
-            adjusted_width = min(max_length + 2, 50)  # 限制最大宽度
+            adjusted_width = min(max_length + 2, 50)  # 闄愬埗鏈€澶у搴?
             ws.column_dimensions[column_letter].width = adjusted_width
         
-        # 冻结首行
+        # 鍐荤粨棣栬
         ws.freeze_panes = "A2"
         
-        # 添加筛选器
+        # 娣诲姞绛涢€夊櫒
         ws.auto_filter.ref = f"A1:{chr(64 + len(headers))}1"
         
-        # 生成文件名（包含时间戳）
+        # 鐢熸垚鏂囦欢鍚嶏紙鍖呭惈鏃堕棿鎴筹級
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if export_range == "filtered":
-            filename = f"设备列表_筛选导出_{timestamp}.xlsx"
+            filename = f"璁惧鍒楄〃_绛涢€夊鍑篲{timestamp}.xlsx"
         else:
-            filename = f"设备列表_全量导出_{timestamp}.xlsx"
+            filename = f"璁惧鍒楄〃_鍏ㄩ噺瀵煎嚭_{timestamp}.xlsx"
         
-        # 将Excel文件保存到内存
+        # 灏咵xcel鏂囦欢淇濆瓨鍒板唴瀛?
         excel_buffer = io.BytesIO()
         wb.save(excel_buffer)
         excel_buffer.seek(0)
         
-        # 设置响应头
+        # 璁剧疆鍝嶅簲澶?
         headers = {
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
             "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         }
         
-        # 返回文件流
+        # 杩斿洖鏂囦欢娴?
         return StreamingResponse(
             io.BytesIO(excel_buffer.read()),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -4039,15 +3742,15 @@ async def export_devices(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"导出设备数据错误: {e}")
+        print(f"瀵煎嚭璁惧鏁版嵁閿欒: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"瀵煎嚭澶辫触: {str(e)}")
 
 
-# --- 连接管理 Pydantic 模型 ---
+# --- 杩炴帴绠＄悊 Pydantic 妯″瀷 ---
 
 class ConnectionCreate(BaseModel):
-    """创建连接的请求模型"""
+    """鍒涘缓杩炴帴鐨勮姹傛ā鍨?"""
     source_device_id: int
     target_device_id: int
     connection_type: Optional[str] = None
@@ -4071,7 +3774,7 @@ class ConnectionCreate(BaseModel):
     installation_date: Optional[date] = None
 
 class ConnectionUpdate(BaseModel):
-    """更新连接的请求模型"""
+    """鏇存柊杩炴帴鐨勮姹傛ā鍨?"""
     source_device_id: Optional[int] = None
     target_device_id: Optional[int] = None
     connection_type: Optional[str] = None
@@ -4095,14 +3798,14 @@ class ConnectionUpdate(BaseModel):
     installation_date: Optional[date] = None
 
 class ConnectionResponse(BaseModel):
-    """连接响应模型"""
+    """杩炴帴鍝嶅簲妯″瀷"""
     id: int
     source_device_id: int
     target_device_id: int
     source_device_name: str
     target_device_name: str
-    source_port: Optional[str]  # 源端口名称（带前缀）
-    target_port: Optional[str]  # 目标端口名称（带前缀）
+    source_port: Optional[str]  # 婧愮鍙ｅ悕绉帮紙甯﹀墠缂€锛?
+    target_port: Optional[str]  # 鐩爣绔彛鍚嶇О锛堝甫鍓嶇紑锛?
     connection_type: Optional[str]
     cable_model: Optional[str]
     source_fuse_number: Optional[str]
@@ -4126,38 +3829,37 @@ class ConnectionResponse(BaseModel):
     updated_at: Optional[datetime]
     
     class Config:
-        # 启用ORM模式，允许从SQLAlchemy模型创建
+        # 鍚敤ORM妯″紡锛屽厑璁镐粠SQLAlchemy妯″瀷鍒涘缓
         from_attributes = True
-        # 自定义JSON编码器处理日期时间对象
+        # 鑷畾涔塉SON缂栫爜鍣ㄥ鐞嗘棩鏈熸椂闂村璞?
         json_encoders = {
             datetime: lambda v: v.isoformat() if v else None,
             date: lambda v: v.isoformat() if v else None
         }
 
 
-# --- 连接管理 RESTful API 接口 ---
+# --- 杩炴帴绠＄悊 RESTful API 鎺ュ彛 ---
 
 def get_unique_connections_count(db: Session) -> int:
     """
-    获取去重后的连接数量
-    通过识别双向连接并去重来获得真实的连接数量
+    鑾峰彇鍘婚噸鍚庣殑杩炴帴鏁伴噺
+    閫氳繃璇嗗埆鍙屽悜杩炴帴骞跺幓閲嶆潵鑾峰緱鐪熷疄鐨勮繛鎺ユ暟閲?
     """
-    # 获取所有有效连接
+    # 鑾峰彇鎵€鏈夋湁鏁堣繛鎺?
     connections = db.query(Connection).filter(Connection.connection_type.isnot(None)).all()
     
-    # 使用集合存储唯一连接
+    # 浣跨敤闆嗗悎瀛樺偍鍞竴杩炴帴
     unique_connections = set()
     
     for conn in connections:
-        # 创建连接的唯一标识
-        # 对于双向连接，使用较小的设备ID作为第一个参数，确保A->B和B->A生成相同的标识
+        # 鍒涘缓杩炴帴鐨勫敮涓€鏍囪瘑
+        # 瀵逛簬鍙屽悜杩炴帴锛屼娇鐢ㄨ緝灏忕殑璁惧ID浣滀负绗竴涓弬鏁帮紝纭繚A->B鍜孊->A鐢熸垚鐩稿悓鐨勬爣璇?
         device_pair = tuple(sorted([conn.source_device_id, conn.target_device_id]))
         
-        # 结合端口信息创建更精确的连接标识
-        source_port = conn.source_fuse_number or conn.source_breaker_number or ""
-        target_port = conn.target_fuse_number or conn.target_breaker_number or ""
-        
-        # 为双向连接创建统一的标识
+        # 缁撳悎绔彛淇℃伅鍒涘缓鏇寸簿纭殑杩炴帴鏍囪瘑
+        source_port = conn.source_fuse_number or conn.source_breaker_number or """
+        target_port = conn.target_fuse_number or conn.target_breaker_number or """
+        # 涓哄弻鍚戣繛鎺ュ垱寤虹粺涓€鐨勬爣璇?
         if conn.source_device_id == device_pair[0]:
             connection_key = (device_pair[0], device_pair[1], source_port, target_port, conn.connection_type)
         else:
@@ -4170,14 +3872,14 @@ def get_unique_connections_count(db: Session) -> int:
 
 def get_connected_ports_count(db: Session) -> int:
     """
-    直接统计所有有连接的端口数量
-    这种方法能够准确处理内部设备互连和外部设备连接
+    鐩存帴缁熻鎵€鏈夋湁杩炴帴鐨勭鍙ｆ暟閲?
+    杩欑鏂规硶鑳藉鍑嗙‘澶勭悊鍐呴儴璁惧浜掕繛鍜屽閮ㄨ澶囪繛鎺?
     """
     connections = db.query(Connection).filter(Connection.connection_type.isnot(None)).all()
     connected_ports = set()
     
     for conn in connections:
-        # 添加源端口
+        # 娣诲姞婧愮鍙?
         if conn.source_fuse_number:
             port_id = f"{conn.source_device_id}_fuse_{conn.source_fuse_number}"
             connected_ports.add(port_id)
@@ -4185,7 +3887,7 @@ def get_connected_ports_count(db: Session) -> int:
             port_id = f"{conn.source_device_id}_breaker_{conn.source_breaker_number}"
             connected_ports.add(port_id)
             
-        # 添加目标端口
+        # 娣诲姞鐩爣绔彛
         if conn.target_fuse_number:
             port_id = f"{conn.target_device_id}_fuse_{conn.target_fuse_number}"
             connected_ports.add(port_id)
@@ -4199,57 +3901,57 @@ def get_connected_ports_count(db: Session) -> int:
 @app.get("/api/connections/statistics")
 async def get_connections_statistics(db: Session = Depends(get_db)):
     """
-    获取连接统计信息
+    鑾峰彇杩炴帴缁熻淇℃伅
     """
     try:
-        # 使用去重算法获取真实的连接数量
+        # 浣跨敤鍘婚噸绠楁硶鑾峰彇鐪熷疄鐨勮繛鎺ユ暟閲?
         total_connections = get_unique_connections_count(db)
         
-        # 使用PortStatisticsService统一的统计逻辑，确保数据一致性
+        # 浣跨敤PortStatisticsService缁熶竴鐨勭粺璁￠€昏緫锛岀‘淇濇暟鎹竴鑷存€?
         port_service = PortStatisticsService(db)
         port_summary = port_service._get_device_port_summary()
         
-        # 从统一的端口统计服务获取数据
+        # 浠庣粺涓€鐨勭鍙ｇ粺璁℃湇鍔¤幏鍙栨暟鎹?
         total_ports = port_summary.get('total_ports', 0)
         connected_ports_count = port_summary.get('connected_ports', 0)
         idle_ports = port_summary.get('idle_ports', 0)
         
-        # 获取设备总数
+        # 鑾峰彇璁惧鎬绘暟
         total_devices = db.query(Device).count()
         
-        # 按连接类型统计
+        # 鎸夎繛鎺ョ被鍨嬬粺璁?
         connection_type_stats = db.query(
             Connection.connection_type,
             func.count(Connection.id).label('count')
         ).group_by(Connection.connection_type).all()
         
-        # 将混合的中英文连接类型统计合并为标准格式
+        # 灏嗘贩鍚堢殑涓嫳鏂囪繛鎺ョ被鍨嬬粺璁″悎骞朵负鏍囧噯鏍煎紡
         cable_count = 0
         busbar_count = 0
         bus_count = 0
         
         for item in connection_type_stats:
-            conn_type = item[0] or ""
+            conn_type = item[0] or """
             count = item[1]
             
-            # 电缆类型（cable 或 电缆）
-            if conn_type.lower() in ['cable', '电缆']:
+            # 鐢电紗绫诲瀷锛坈able 鎴?鐢电紗锛?
+            if conn_type.lower() in ['cable', '鐢电紗']:
                 cable_count += count
-            # 铜排类型（busbar 或 铜排）
-            elif conn_type.lower() in ['busbar', '铜排']:
+            # 閾滄帓绫诲瀷锛坆usbar 鎴?閾滄帓锛?
+            elif conn_type.lower() in ['busbar', '閾滄帓']:
                 busbar_count += count
-            # 母线类型（bus、busway 或 母线）
-            elif conn_type.lower() in ['bus', 'busway', '母线']:
+            # 姣嶇嚎绫诲瀷锛坆us銆乥usway 鎴?姣嶇嚎锛?
+            elif conn_type.lower() in ['bus', 'busway', '姣嶇嚎']:
                 bus_count += count
         
-        # 按设备类型统计（源设备）
+        # 鎸夎澶囩被鍨嬬粺璁★紙婧愯澶囷級
         device_type_stats = db.query(
             Device.device_type,
             func.count(Connection.id).label('count')
         ).join(Connection, Device.id == Connection.source_device_id)\
          .group_by(Device.device_type).all()
         
-        # 最近30天新增连接数
+        # 鏈€杩?0澶╂柊澧炶繛鎺ユ暟
         thirty_days_ago = datetime.now() - timedelta(days=30)
         recent_connections = db.query(Connection)\
             .filter(Connection.created_at >= thirty_days_ago).count()
@@ -4267,32 +3969,32 @@ async def get_connections_statistics(db: Session = Depends(get_db)):
                 "bus": bus_count,
                 "recent_connections": recent_connections,
                 "connection_types": [
-                    {"type": item[0] or "未分类", "count": item[1]} 
+                    {"type": item[0] or "鏈垎绫?, "count": item[1]} 
                     for item in connection_type_stats
                 ],
                 "device_types": [
-                    {"type": item[0] or "未分类", "count": item[1]} 
+                    {"type": item[0] or "鏈垎绫?, "count": item[1]} 
                     for item in device_type_stats
                 ]
             }
         })
         
     except Exception as e:
-        print(f"获取连接统计失败: {e}")
+        print(f"鑾峰彇杩炴帴缁熻澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取连接统计失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇杩炴帴缁熻澶辫触: {str(e)}")
 
 
 @app.get("/api/ports/statistics")
 async def get_port_statistics(db: Session = Depends(get_db)):
     """
-    获取端口统计信息
+    鑾峰彇绔彛缁熻淇℃伅
     """
     try:
-        # 创建端口统计服务实例
+        # 鍒涘缓绔彛缁熻鏈嶅姟瀹炰緥
         port_service = PortStatisticsService(db)
         
-        # 获取端口统计数据
+        # 鑾峰彇绔彛缁熻鏁版嵁
         statistics = port_service.get_port_statistics()
         
         return JSONResponse(content={
@@ -4301,21 +4003,21 @@ async def get_port_statistics(db: Session = Depends(get_db)):
         })
         
     except Exception as e:
-        print(f"获取端口统计失败: {e}")
+        print(f"鑾峰彇绔彛缁熻澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取端口统计失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇绔彛缁熻澶辫触: {str(e)}")
 
 
 @app.get("/api/devices/{device_id}/ports")
 async def get_device_port_details(device_id: int, db: Session = Depends(get_db)):
     """
-    获取指定设备的端口详情
+    鑾峰彇鎸囧畾璁惧鐨勭鍙ｈ鎯?
     """
     try:
-        # 创建端口统计服务实例
+        # 鍒涘缓绔彛缁熻鏈嶅姟瀹炰緥
         port_service = PortStatisticsService(db)
         
-        # 获取设备端口详情
+        # 鑾峰彇璁惧绔彛璇︽儏
         port_details = port_service.get_device_port_details(device_id)
         
         return JSONResponse(content={
@@ -4324,24 +4026,24 @@ async def get_device_port_details(device_id: int, db: Session = Depends(get_db))
         })
         
     except Exception as e:
-        print(f"获取设备端口详情失败: {e}")
+        print(f"鑾峰彇璁惧绔彛璇︽儏澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取设备端口详情失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇璁惧绔彛璇︽儏澶辫触: {str(e)}")
 
 
-# ==================== 统计分析API端点 ====================
+# ==================== 缁熻鍒嗘瀽API绔偣 ====================
 
 @app.get("/api/analytics/utilization-rates")
 async def get_utilization_rates(db: Session = Depends(get_db)):
     """
-    获取使用率分析数据
-    包括端口总体使用率、按设备类型统计、按站点统计等
+    鑾峰彇浣跨敤鐜囧垎鏋愭暟鎹?
+    鍖呮嫭绔彛鎬讳綋浣跨敤鐜囥€佹寜璁惧绫诲瀷缁熻銆佹寜绔欑偣缁熻绛?
     """
     try:
-        # 创建统计分析服务实例
+        # 鍒涘缓缁熻鍒嗘瀽鏈嶅姟瀹炰緥
         analytics_service = AnalyticsService(db)
         
-        # 获取使用率分析数据
+        # 鑾峰彇浣跨敤鐜囧垎鏋愭暟鎹?
         utilization_data = analytics_service.get_utilization_rates()
         
         return JSONResponse(content={
@@ -4350,22 +4052,22 @@ async def get_utilization_rates(db: Session = Depends(get_db)):
         })
         
     except Exception as e:
-        print(f"获取使用率分析数据失败: {e}")
+        print(f"鑾峰彇浣跨敤鐜囧垎鏋愭暟鎹け璐? {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取使用率分析数据失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇浣跨敤鐜囧垎鏋愭暟鎹け璐? {str(e)}")
 
 
 @app.get("/api/analytics/idle-rates")
 async def get_idle_rates(db: Session = Depends(get_db)):
     """
-    获取空闲率分析数据
-    包括端口总体空闲率、按设备类型统计、按站点统计、空闲率预警等
+    鑾峰彇绌洪棽鐜囧垎鏋愭暟鎹?
+    鍖呮嫭绔彛鎬讳綋绌洪棽鐜囥€佹寜璁惧绫诲瀷缁熻銆佹寜绔欑偣缁熻銆佺┖闂茬巼棰勮绛?
     """
     try:
-        # 创建统计分析服务实例
+        # 鍒涘缓缁熻鍒嗘瀽鏈嶅姟瀹炰緥
         analytics_service = AnalyticsService(db)
         
-        # 获取空闲率分析数据
+        # 鑾峰彇绌洪棽鐜囧垎鏋愭暟鎹?
         idle_data = analytics_service.get_idle_rates()
         
         return JSONResponse(content={
@@ -4374,9 +4076,9 @@ async def get_idle_rates(db: Session = Depends(get_db)):
         })
         
     except Exception as e:
-        print(f"获取空闲率分析数据失败: {e}")
+        print(f"鑾峰彇绌洪棽鐜囧垎鏋愭暟鎹け璐? {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取空闲率分析数据失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇绌洪棽鐜囧垎鏋愭暟鎹け璐? {str(e)}")
 
 
 
@@ -4385,14 +4087,14 @@ async def get_idle_rates(db: Session = Depends(get_db)):
 @app.get("/api/analytics/summary-dashboard")
 async def get_summary_dashboard(db: Session = Depends(get_db)):
     """
-    获取仪表板汇总数据
-    包括所有关键指标的汇总信息，用于统计分析仪表板显示
+    鑾峰彇浠〃鏉挎眹鎬绘暟鎹?
+    鍖呮嫭鎵€鏈夊叧閿寚鏍囩殑姹囨€讳俊鎭紝鐢ㄤ簬缁熻鍒嗘瀽浠〃鏉挎樉绀?
     """
     try:
-        # 创建统计分析服务实例
+        # 鍒涘缓缁熻鍒嗘瀽鏈嶅姟瀹炰緥
         analytics_service = AnalyticsService(db)
         
-        # 获取仪表板汇总数据
+        # 鑾峰彇浠〃鏉挎眹鎬绘暟鎹?
         dashboard_data = analytics_service.get_summary_dashboard()
         
         return JSONResponse(content={
@@ -4401,57 +4103,57 @@ async def get_summary_dashboard(db: Session = Depends(get_db)):
         })
         
     except Exception as e:
-        print(f"获取仪表板汇总数据失败: {e}")
+        print(f"鑾峰彇浠〃鏉挎眹鎬绘暟鎹け璐? {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取仪表板汇总数据失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇浠〃鏉挎眹鎬绘暟鎹け璐? {str(e)}")
 
 
-# 辅助函数：根据熔丝/空开编号为端口名称添加前缀
+# 杈呭姪鍑芥暟锛氭牴鎹啍涓?绌哄紑缂栧彿涓虹鍙ｅ悕绉版坊鍔犲墠缂€
 def build_port_name_with_prefix(fuse_number, breaker_number, original_port=None):
-    """根据熔丝编号或空开编号为端口名称添加前缀"""
+    """鏍规嵁鐔斾笣缂栧彿鎴栫┖寮€缂栧彿涓虹鍙ｅ悕绉版坊鍔犲墠缂€"""
     fuse_num = str(fuse_number).strip() if fuse_number and str(fuse_number).strip() not in ['', 'nan', 'None'] else ''
     breaker_num = str(breaker_number).strip() if breaker_number and str(breaker_number).strip() not in ['', 'nan', 'None'] else ''
     
-    # 优先使用熔丝编号
+    # 浼樺厛浣跨敤鐔斾笣缂栧彿
     if fuse_num:
-        return f"熔丝_{fuse_num}"
+        return f"鐔斾笣_{fuse_num}"
     elif breaker_num:
-        return f"空开_{breaker_num}"
+        return f"绌哄紑_{breaker_num}"
     else:
-        # 如果都没有，返回原始端口名称或空字符串
+        # 濡傛灉閮芥病鏈夛紝杩斿洖鍘熷绔彛鍚嶇О鎴栫┖瀛楃涓?
         return original_port if original_port else ''
 
 
 @app.get("/api/connections")
 async def get_connections(
-    page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(100, ge=1, le=5000, description="每页数量"),
-    source_device_id: Optional[int] = Query(None, description="源设备ID"),
-    target_device_id: Optional[int] = Query(None, description="目标设备ID"),
-    connection_type: Optional[str] = Query(None, description="连接类型"),
-    device_name: Optional[str] = Query(None, description="设备名称（模糊查询，匹配源设备或目标设备）"),
+    page: int = Query(1, ge=1, description="椤电爜"),
+    page_size: int = Query(100, ge=1, le=5000, description="姣忛〉鏁伴噺"),
+    source_device_id: Optional[int] = Query(None, description="婧愯澶嘔D"),
+    target_device_id: Optional[int] = Query(None, description="鐩爣璁惧ID"),
+    connection_type: Optional[str] = Query(None, description="杩炴帴绫诲瀷"),
+    device_name: Optional[str] = Query(None, description="璁惧鍚嶇О锛堟ā绯婃煡璇紝鍖归厤婧愯澶囨垨鐩爣璁惧锛?),
     db: Session = Depends(get_db)
 ):
     """
-    获取连接列表
-    支持分页和筛选功能
+    鑾峰彇杩炴帴鍒楄〃
+    鏀寔鍒嗛〉鍜岀瓫閫夊姛鑳?
     """
     try:
-        # 构建查询
-        # 创建Device表的别名用于目标设备
+        # 鏋勫缓鏌ヨ
+        # 鍒涘缓Device琛ㄧ殑鍒悕鐢ㄤ簬鐩爣璁惧
         target_device = aliased(Device)
         query = db.query(Connection, Device.name.label('source_device_name'), target_device.name.label('target_device_name'))\
                   .join(Device, Connection.source_device_id == Device.id)\
                   .join(target_device, Connection.target_device_id == target_device.id)
         
-        # 应用筛选条件
+        # 搴旂敤绛涢€夋潯浠?
         if source_device_id:
             query = query.filter(Connection.source_device_id == source_device_id)
         if target_device_id:
             query = query.filter(Connection.target_device_id == target_device_id)
         if connection_type:
-            if connection_type == "空闲":
-                # 筛选空闲端口：连接类型为空且A端设备有熔丝或空开数据
+            if connection_type == "绌洪棽":
+                # 绛涢€夌┖闂茬鍙ｏ細杩炴帴绫诲瀷涓虹┖涓擜绔澶囨湁鐔斾笣鎴栫┖寮€鏁版嵁
                 query = query.filter(
                     and_(
                         Connection.connection_type.is_(None),
@@ -4461,45 +4163,45 @@ async def get_connections(
                         )
                     )
                 )
-            elif connection_type == "已使用总量":
-                # 筛选已使用总量：显示所有有连接类型的记录（非空闲）
+            elif connection_type == "宸蹭娇鐢ㄦ€婚噺":
+                # 绛涢€夊凡浣跨敤鎬婚噺锛氭樉绀烘墍鏈夋湁杩炴帴绫诲瀷鐨勮褰曪紙闈炵┖闂诧級
                 query = query.filter(Connection.connection_type.isnot(None))
             else:
                 query = query.filter(Connection.connection_type.ilike(f"%{connection_type}%"))
         else:
-            # 如果没有指定连接类型筛选，默认显示所有记录（包括空闲端口）
-            # 但要确保A端设备有端口数据（熔丝或空开）
+            # 濡傛灉娌℃湁鎸囧畾杩炴帴绫诲瀷绛涢€夛紝榛樿鏄剧ず鎵€鏈夎褰曪紙鍖呮嫭绌洪棽绔彛锛?
+            # 浣嗚纭繚A绔澶囨湁绔彛鏁版嵁锛堢啍涓濇垨绌哄紑锛?
             query = query.filter(
                 or_(
                     Connection.source_fuse_number.isnot(None),
                     Connection.source_breaker_number.isnot(None)
                 )
             )
-        # 按设备名称模糊查询（匹配源设备或目标设备）
+        # 鎸夎澶囧悕绉版ā绯婃煡璇紙鍖归厤婧愯澶囨垨鐩爣璁惧锛?
         if device_name:
             query = query.filter(
                 or_(
-                    Device.name.ilike(f"%{device_name}%"),  # 匹配源设备名称
-                    target_device.name.ilike(f"%{device_name}%")  # 匹配目标设备名称
+                    Device.name.ilike(f"%{device_name}%"),  # 鍖归厤婧愯澶囧悕绉?
+                    target_device.name.ilike(f"%{device_name}%")  # 鍖归厤鐩爣璁惧鍚嶇О
                 )
             )
         
-        # 计算总数
+        # 璁＄畻鎬绘暟
         total = query.count()
         
-        # 应用分页
+        # 搴旂敤鍒嗛〉
         offset = (page - 1) * page_size
         results = query.offset(offset).limit(page_size).all()
         
-        # 构建响应数据 - 手动序列化日期字段以避免JSON序列化错误
+        # 鏋勫缓鍝嶅簲鏁版嵁 - 鎵嬪姩搴忓垪鍖栨棩鏈熷瓧娈典互閬垮厤JSON搴忓垪鍖栭敊璇?
         result = []
         for conn, source_name, target_name in results:
-            # 手动处理日期字段的序列化
+            # 鎵嬪姩澶勭悊鏃ユ湡瀛楁鐨勫簭鍒楀寲
             installation_date_str = conn.installation_date.isoformat() if conn.installation_date else None
             created_at_str = conn.created_at.isoformat() if conn.created_at else None
             updated_at_str = conn.updated_at.isoformat() if conn.updated_at else None
             
-            # 构建带前缀的端口名称
+            # 鏋勫缓甯﹀墠缂€鐨勭鍙ｅ悕绉?
             source_port_with_prefix = build_port_name_with_prefix(
                 conn.source_fuse_number, 
                 conn.source_breaker_number, 
@@ -4519,8 +4221,8 @@ async def get_connections(
                 "target_device_name": target_name,
                 "connection_type": conn.connection_type,
                 "cable_model": conn.cable_model,
-                "source_port": source_port_with_prefix,  # 使用带前缀的端口名称
-                "target_port": target_port_with_prefix,  # 使用带前缀的端口名称
+                "source_port": source_port_with_prefix,  # 浣跨敤甯﹀墠缂€鐨勭鍙ｅ悕绉?
+                "target_port": target_port_with_prefix,  # 浣跨敤甯﹀墠缂€鐨勭鍙ｅ悕绉?
                 "source_fuse_number": conn.source_fuse_number,
                 "source_fuse_spec": conn.source_fuse_spec,
                 "source_breaker_number": conn.source_breaker_number,
@@ -4533,8 +4235,8 @@ async def get_connections(
                 "upstream_downstream": conn.upstream_downstream,
                 "parallel_count": conn.parallel_count,
                 "rated_current": conn.rated_current,
-                "a_rated_current": conn.a_rated_current,  # 添加A端额定电流字段
-                "b_rated_current": conn.b_rated_current,  # 添加B端额定电流字段
+                "a_rated_current": conn.a_rated_current,  # 娣诲姞A绔瀹氱數娴佸瓧娈?
+                "b_rated_current": conn.b_rated_current,  # 娣诲姞B绔瀹氱數娴佸瓧娈?
                 "cable_length": conn.cable_length,
                 "source_device_photo": conn.source_device_photo,
                 "target_device_photo": conn.target_device_photo,
@@ -4556,9 +4258,9 @@ async def get_connections(
         }
         
     except Exception as e:
-        print(f"获取连接列表失败: {e}")
+        print(f"鑾峰彇杩炴帴鍒楄〃澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取连接列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇杩炴帴鍒楄〃澶辫触: {str(e)}")
 
 
 @app.post("/api/connections")
@@ -4590,47 +4292,47 @@ async def create_connection(
     db: Session = Depends(get_db)
 ):
     """
-    创建新连接
-    需要管理员密码验证
+    鍒涘缓鏂拌繛鎺?
+    闇€瑕佺鐞嗗憳瀵嗙爜楠岃瘉
     """
     try:
-        # 验证管理员密码
+        # 楠岃瘉绠＄悊鍛樺瘑鐮?
         if not verify_admin_password(password):
-            raise HTTPException(status_code=401, detail="密码错误")
+            raise HTTPException(status_code=401, detail="瀵嗙爜閿欒")
         
-        # 处理日期字段 - 支持yyyymm格式
+        # 澶勭悊鏃ユ湡瀛楁 - 鏀寔yyyymm鏍煎紡
         parsed_installation_date = None
         if installation_date:
             try:
-                # 支持yyyymm格式，如202412
+                # 鏀寔yyyymm鏍煎紡锛屽202412
                 if len(installation_date) == 6 and installation_date.isdigit():
                     year = int(installation_date[:4])
                     month = int(installation_date[4:6])
                     parsed_installation_date = datetime(year, month, 1).date()
                 else:
-                    raise ValueError("日期格式不正确")
+                    raise ValueError("鏃ユ湡鏍煎紡涓嶆纭?)
             except ValueError:
-                raise HTTPException(status_code=400, detail="安装日期格式错误，请使用YYYYMM格式（如：202412）")
+                raise HTTPException(status_code=400, detail="瀹夎鏃ユ湡鏍煎紡閿欒锛岃浣跨敤YYYYMM鏍煎紡锛堝锛?02412锛?)
         
-        # 验证源设备和目标设备是否存在
+        # 楠岃瘉婧愯澶囧拰鐩爣璁惧鏄惁瀛樺湪
         source_device = db.query(Device).filter(Device.id == source_device_id).first()
         if not source_device:
-            raise HTTPException(status_code=404, detail=f"源设备ID {source_device_id} 不存在")
+            raise HTTPException(status_code=404, detail=f"婧愯澶嘔D {source_device_id} 涓嶅瓨鍦?)
         
         target_device = db.query(Device).filter(Device.id == target_device_id).first()
         if not target_device:
-            raise HTTPException(status_code=404, detail=f"目标设备ID {target_device_id} 不存在")
+            raise HTTPException(status_code=404, detail=f"鐩爣璁惧ID {target_device_id} 涓嶅瓨鍦?)
         
-        # 检查是否已存在相同的连接
+        # 妫€鏌ユ槸鍚﹀凡瀛樺湪鐩稿悓鐨勮繛鎺?
         existing_connection = db.query(Connection).filter(
             Connection.source_device_id == source_device_id,
             Connection.target_device_id == target_device_id
         ).first()
         
         if existing_connection:
-            raise HTTPException(status_code=400, detail="该连接已存在")
+            raise HTTPException(status_code=400, detail="璇ヨ繛鎺ュ凡瀛樺湪")
         
-        # 创建新连接
+        # 鍒涘缓鏂拌繛鎺?
         new_connection = Connection(
             source_device_id=source_device_id,
             target_device_id=target_device_id,
@@ -4662,7 +4364,7 @@ async def create_connection(
         db.commit()
         db.refresh(new_connection)
         
-        # 构建响应
+        # 鏋勫缓鍝嶅簲
         response = ConnectionResponse(
             id=new_connection.id,
             source_device_id=new_connection.source_device_id,
@@ -4692,7 +4394,7 @@ async def create_connection(
             updated_at=new_connection.updated_at
         )
         
-        # 手动处理日期字段序列化
+        # 鎵嬪姩澶勭悊鏃ユ湡瀛楁搴忓垪鍖?
         response_data = {
             "id": new_connection.id,
             "source_device_id": new_connection.source_device_id,
@@ -4724,7 +4426,7 @@ async def create_connection(
         
         return JSONResponse(content={
             "success": True,
-            "message": "连接创建成功",
+            "message": "杩炴帴鍒涘缓鎴愬姛",
             "data": response_data
         })
         
@@ -4732,9 +4434,9 @@ async def create_connection(
         raise
     except Exception as e:
         db.rollback()
-        print(f"创建连接失败: {e}")
+        print(f"鍒涘缓杩炴帴澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"创建连接失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鍒涘缓杩炴帴澶辫触: {str(e)}")
 
 
 @app.put("/api/connections/{connection_id}")
@@ -4767,39 +4469,39 @@ async def update_connection(
     db: Session = Depends(get_db)
 ):
     """
-    更新连接信息
-    需要管理员密码验证
+    鏇存柊杩炴帴淇℃伅
+    闇€瑕佺鐞嗗憳瀵嗙爜楠岃瘉
     """
     try:
-        # 验证管理员密码
+        # 楠岃瘉绠＄悊鍛樺瘑鐮?
         if not verify_admin_password(password):
-            raise HTTPException(status_code=401, detail="密码错误")
+            raise HTTPException(status_code=401, detail="瀵嗙爜閿欒")
         
-        # 查找要更新的连接
+        # 鏌ユ壘瑕佹洿鏂扮殑杩炴帴
         existing_connection = db.query(Connection).filter(Connection.id == connection_id).first()
         if not existing_connection:
-            raise HTTPException(status_code=404, detail="连接不存在")
+            raise HTTPException(status_code=404, detail="杩炴帴涓嶅瓨鍦?)
         
-        # 如果要更新设备ID，验证设备是否存在
+        # 濡傛灉瑕佹洿鏂拌澶嘔D锛岄獙璇佽澶囨槸鍚﹀瓨鍦?
         if source_device_id is not None:
             source_device = db.query(Device).filter(Device.id == source_device_id).first()
             if not source_device:
-                raise HTTPException(status_code=404, detail=f"源设备ID {source_device_id} 不存在")
+                raise HTTPException(status_code=404, detail=f"婧愯澶嘔D {source_device_id} 涓嶅瓨鍦?)
             existing_connection.source_device_id = source_device_id
         
         if target_device_id is not None:
             target_device = db.query(Device).filter(Device.id == target_device_id).first()
             if not target_device:
-                raise HTTPException(status_code=404, detail=f"目标设备ID {target_device_id} 不存在")
+                raise HTTPException(status_code=404, detail=f"鐩爣璁惧ID {target_device_id} 涓嶅瓨鍦?)
             existing_connection.target_device_id = target_device_id
         
-        # 更新端口字段
+        # 鏇存柊绔彛瀛楁
         if source_port is not None:
             existing_connection.source_port = source_port
         if target_port is not None:
             existing_connection.target_port = target_port
         
-        # 更新其他字段
+        # 鏇存柊鍏朵粬瀛楁
         if connection_type is not None:
             existing_connection.connection_type = connection_type
         if cable_model is not None:
@@ -4847,7 +4549,7 @@ async def update_connection(
         db.commit()
         db.refresh(existing_connection)
         
-        # 构建响应数据
+        # 鏋勫缓鍝嶅簲鏁版嵁
         response_data = {
             "id": existing_connection.id,
             "source_device_id": existing_connection.source_device_id,
@@ -4881,7 +4583,7 @@ async def update_connection(
         
         return JSONResponse(content={
             "success": True,
-            "message": "连接更新成功",
+            "message": "杩炴帴鏇存柊鎴愬姛",
             "data": response_data
         })
         
@@ -4889,9 +4591,9 @@ async def update_connection(
         raise
     except Exception as e:
         db.rollback()
-        print(f"更新连接失败: {e}")
+        print(f"鏇存柊杩炴帴澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"更新连接失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鏇存柊杩炴帴澶辫触: {str(e)}")
 
 
 @app.delete("/api/connections/{connection_id}")
@@ -4901,35 +4603,35 @@ async def delete_connection(
     db: Session = Depends(get_db)
 ):
     """
-    删除连接
-    需要管理员密码验证
+    鍒犻櫎杩炴帴
+    闇€瑕佺鐞嗗憳瀵嗙爜楠岃瘉
     """
     try:
-        # 验证管理员密码
+        # 楠岃瘉绠＄悊鍛樺瘑鐮?
         if not verify_admin_password(password):
-            raise HTTPException(status_code=401, detail="密码错误")
+            raise HTTPException(status_code=401, detail="瀵嗙爜閿欒")
         
-        # 查找要删除的连接
+        # 鏌ユ壘瑕佸垹闄ょ殑杩炴帴
         connection = db.query(Connection).filter(Connection.id == connection_id).first()
         if not connection:
-            raise HTTPException(status_code=404, detail="连接不存在")
+            raise HTTPException(status_code=404, detail="杩炴帴涓嶅瓨鍦?)
         
-        # 删除连接
+        # 鍒犻櫎杩炴帴
         db.delete(connection)
         db.commit()
         
         return JSONResponse(content={
             "success": True,
-            "message": "连接删除成功"
+            "message": "杩炴帴鍒犻櫎鎴愬姛"
         })
         
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
-        print(f"删除连接失败: {e}")
+        print(f"鍒犻櫎杩炴帴澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"删除连接失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鍒犻櫎杩炴帴澶辫触: {str(e)}")
 
 
 @app.get("/api/connections/{connection_id}", response_model=ConnectionResponse)
@@ -4938,14 +4640,14 @@ async def get_connection(
     db: Session = Depends(get_db)
 ):
     """
-    获取单个连接详情
+    鑾峰彇鍗曚釜杩炴帴璇︽儏
     """
     try:
         connection = db.query(Connection).filter(Connection.id == connection_id).first()
         if not connection:
-            raise HTTPException(status_code=404, detail="连接不存在")
+            raise HTTPException(status_code=404, detail="杩炴帴涓嶅瓨鍦?)
         
-        # 手动处理日期字段的序列化
+        # 鎵嬪姩澶勭悊鏃ユ湡瀛楁鐨勫簭鍒楀寲
         installation_date_str = connection.installation_date.isoformat() if connection.installation_date else None
         created_at_str = connection.created_at.isoformat() if connection.created_at else None
         updated_at_str = connection.updated_at.isoformat() if connection.updated_at else None
@@ -4978,8 +4680,8 @@ async def get_connection(
             "upstream_downstream": connection.upstream_downstream,
             "parallel_count": connection.parallel_count,
             "rated_current": connection.rated_current,
-            "a_rated_current": connection.a_rated_current,  # A端额定电流
-            "b_rated_current": connection.b_rated_current,  # B端额定电流
+            "a_rated_current": connection.a_rated_current,  # A绔瀹氱數娴?
+            "b_rated_current": connection.b_rated_current,  # B绔瀹氱數娴?
             "cable_length": connection.cable_length,
             "source_device_photo": connection.source_device_photo,
             "target_device_photo": connection.target_device_photo,
@@ -4997,56 +4699,56 @@ async def get_connection(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"获取连接详情失败: {e}")
+        print(f"鑾峰彇杩炴帴璇︽儏澶辫触: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取连接详情失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"鑾峰彇杩炴帴璇︽儏澶辫触: {str(e)}")
 
 
-# --- 总线式端口拓扑图实现函数 ---
+# --- 鎬荤嚎寮忕鍙ｆ嫇鎵戝浘瀹炵幇鍑芥暟 ---
 
 def _create_bus_topology_nodes(device: Device, db: Session, group_size: int = 12) -> dict:
-    """为设备创建总线式拓扑节点（总线节点 + 端口节点 + 总线-端口连接）"""
+    """涓鸿澶囧垱寤烘€荤嚎寮忔嫇鎵戣妭鐐癸紙鎬荤嚎鑺傜偣 + 绔彛鑺傜偣 + 鎬荤嚎-绔彛杩炴帴锛?"""
     bus_nodes = []
     port_nodes = []
     bus_port_edges = []
-    connected_device_ports = []  # 存储对端设备的端口节点
+    connected_device_ports = []  # 瀛樺偍瀵圭璁惧鐨勭鍙ｈ妭鐐?
     
     try:
-        # 1. 获取设备的所有端口信息
+        # 1. 鑾峰彇璁惧鐨勬墍鏈夌鍙ｄ俊鎭?
         device_ports = _extract_device_ports(device, db)
         
-        # 2. 按电流方向分组端口
+        # 2. 鎸夌數娴佹柟鍚戝垎缁勭鍙?
         port_groups = _group_ports_by_direction(device, device_ports)
         
-        # 3. 为每个方向创建总线节点和端口节点（支持按端口数量分组）
+        # 3. 涓烘瘡涓柟鍚戝垱寤烘€荤嚎鑺傜偣鍜岀鍙ｈ妭鐐癸紙鏀寔鎸夌鍙ｆ暟閲忓垎缁勶級
         for direction, ports in port_groups.items():
-            if ports:  # 只有当该方向有端口时才创建总线
-                # 按端口数量分组，每group_size个端口一条总线
+            if ports:  # 鍙湁褰撹鏂瑰悜鏈夌鍙ｆ椂鎵嶅垱寤烘€荤嚎
+                # 鎸夌鍙ｆ暟閲忓垎缁勶紝姣廹roup_size涓鍙ｄ竴鏉℃€荤嚎
                 port_chunks = _split_ports_into_chunks(ports, max_ports_per_bus=group_size)
                 
                 for chunk_index, port_chunk in enumerate(port_chunks):
-                    # 创建总线节点（如果有多条总线，添加编号）
-                    bus_suffix = f"_{chunk_index + 1}" if len(port_chunks) > 1 else ""
+                    # 鍒涘缓鎬荤嚎鑺傜偣锛堝鏋滄湁澶氭潯鎬荤嚎锛屾坊鍔犵紪鍙凤級
+                    bus_suffix = f"_{chunk_index + 1}" if len(port_chunks) > 1 else """
                     bus_node = _create_bus_node(device, direction + bus_suffix, port_chunk)
                     bus_nodes.append(bus_node)
                     
-                    # 创建端口节点并连接到总线
+                    # 鍒涘缓绔彛鑺傜偣骞惰繛鎺ュ埌鎬荤嚎
                     for port in port_chunk:
                         port_node = _create_port_node_for_bus(device, port, direction, db)
                         port_nodes.append(port_node)
                         
-                        # 创建总线到端口的连接
+                        # 鍒涘缓鎬荤嚎鍒扮鍙ｇ殑杩炴帴
                         bus_port_edge = _create_bus_to_port_edge(bus_node['id'], port_node['id'])
                         bus_port_edges.append(bus_port_edge)
                         
-                        # 为有连接的端口创建对端设备的简化端口节点
+                        # 涓烘湁杩炴帴鐨勭鍙ｅ垱寤哄绔澶囩殑绠€鍖栫鍙ｈ妭鐐?
                         if port.get('connected_device_id') and port.get('connection_id'):
                             connected_port = _create_connected_device_port_node(device, port, db)
                             if connected_port:
                                 connected_device_ports.append(connected_port)
         
-        # 将对端设备端口节点添加到结果中（去重处理）
-        # 使用字典去重，避免同一个对端端口被重复添加
+        # 灏嗗绔澶囩鍙ｈ妭鐐规坊鍔犲埌缁撴灉涓紙鍘婚噸澶勭悊锛?
+        # 浣跨敤瀛楀吀鍘婚噸锛岄伩鍏嶅悓涓€涓绔鍙ｈ閲嶅娣诲姞
         unique_connected_ports = {}
         for connected_port in connected_device_ports:
             port_id = connected_port['id']
@@ -5062,8 +4764,8 @@ def _create_bus_topology_nodes(device: Device, db: Session, group_size: int = 12
         }
         
     except Exception as e:
-        print(f"创建总线式拓扑节点失败: {str(e)}")
-        # 如果总线式创建失败，回退到标准端口节点
+        print(f"鍒涘缓鎬荤嚎寮忔嫇鎵戣妭鐐瑰け璐? {str(e)}")
+        # 濡傛灉鎬荤嚎寮忓垱寤哄け璐ワ紝鍥為€€鍒版爣鍑嗙鍙ｈ妭鐐?
         standard_ports = _create_port_nodes(device, db)
         return {
             'bus_nodes': [],
@@ -5073,15 +4775,15 @@ def _create_bus_topology_nodes(device: Device, db: Session, group_size: int = 12
 
 
 def _extract_device_ports(device: Device, db: Session) -> list:
-    """提取设备的所有端口信息，基于实际电流方向正确分类"""
+    """鎻愬彇璁惧鐨勬墍鏈夌鍙ｄ俊鎭紝鍩轰簬瀹為檯鐢垫祦鏂瑰悜姝ｇ‘鍒嗙被"""
     ports = []
     
-    # 从作为目标设备的连接中提取端口
+    # 浠庝綔涓虹洰鏍囪澶囩殑杩炴帴涓彁鍙栫鍙?
     for conn in device.target_connections:
-        # 根据upstream_downstream字段判断实际电流方向
-        # 对于选中设备作为target_device的连接：
-        # - 如果upstream_downstream为"上游"，说明电流从source流向target，选中设备接收电力（输入端口）
-        # - 如果upstream_downstream为"下游"，说明电流从target流向source，选中设备输出电力（输出端口）
+        # 鏍规嵁upstream_downstream瀛楁鍒ゆ柇瀹為檯鐢垫祦鏂瑰悜
+        # 瀵逛簬閫変腑璁惧浣滀负target_device鐨勮繛鎺ワ細
+        # - 濡傛灉upstream_downstream涓?涓婃父"锛岃鏄庣數娴佷粠source娴佸悜target锛岄€変腑璁惧鎺ユ敹鐢靛姏锛堣緭鍏ョ鍙ｏ級
+        # - 濡傛灉upstream_downstream涓?涓嬫父"锛岃鏄庣數娴佷粠target娴佸悜source锛岄€変腑璁惧杈撳嚭鐢靛姏锛堣緭鍑虹鍙ｏ級
         actual_direction = _determine_actual_port_direction(
             device.id, conn.source_device_id, conn.target_device_id, 
             conn.upstream_downstream, 'target'
@@ -5090,7 +4792,7 @@ def _extract_device_ports(device: Device, db: Session) -> list:
         if conn.target_fuse_number:
             ports.append({
                 'name': conn.target_fuse_number,
-                'type': '熔断器',
+                'type': '鐔旀柇鍣?,
                 'spec': conn.target_fuse_spec,
                 'connection_id': conn.id,
                 'direction': actual_direction,
@@ -5100,7 +4802,7 @@ def _extract_device_ports(device: Device, db: Session) -> list:
         if conn.target_breaker_number:
             ports.append({
                 'name': conn.target_breaker_number,
-                'type': '断路器',
+                'type': '鏂矾鍣?,
                 'spec': conn.target_breaker_spec,
                 'connection_id': conn.id,
                 'direction': actual_direction,
@@ -5108,11 +4810,11 @@ def _extract_device_ports(device: Device, db: Session) -> list:
                 'upstream_downstream': conn.upstream_downstream
             })
     
-    # 从作为源设备的连接中提取端口
+    # 浠庝綔涓烘簮璁惧鐨勮繛鎺ヤ腑鎻愬彇绔彛
     for conn in device.source_connections:
-        # 对于选中设备作为source_device的连接：
-        # - 如果upstream_downstream为"上游"，说明电流从source流向target，选中设备输出电力（输出端口）
-        # - 如果upstream_downstream为"下游"，说明电流从target流向source，选中设备接收电力（输入端口）
+        # 瀵逛簬閫変腑璁惧浣滀负source_device鐨勮繛鎺ワ細
+        # - 濡傛灉upstream_downstream涓?涓婃父"锛岃鏄庣數娴佷粠source娴佸悜target锛岄€変腑璁惧杈撳嚭鐢靛姏锛堣緭鍑虹鍙ｏ級
+        # - 濡傛灉upstream_downstream涓?涓嬫父"锛岃鏄庣數娴佷粠target娴佸悜source锛岄€変腑璁惧鎺ユ敹鐢靛姏锛堣緭鍏ョ鍙ｏ級
         actual_direction = _determine_actual_port_direction(
             device.id, conn.source_device_id, conn.target_device_id, 
             conn.upstream_downstream, 'source'
@@ -5121,7 +4823,7 @@ def _extract_device_ports(device: Device, db: Session) -> list:
         if conn.source_fuse_number:
             ports.append({
                 'name': conn.source_fuse_number,
-                'type': '熔断器',
+                'type': '鐔旀柇鍣?,
                 'spec': conn.source_fuse_spec,
                 'connection_id': conn.id,
                 'direction': actual_direction,
@@ -5131,7 +4833,7 @@ def _extract_device_ports(device: Device, db: Session) -> list:
         if conn.source_breaker_number:
             ports.append({
                 'name': conn.source_breaker_number,
-                'type': '断路器',
+                'type': '鏂矾鍣?,
                 'spec': conn.source_breaker_spec,
                 'connection_id': conn.id,
                 'direction': actual_direction,
@@ -5143,7 +4845,7 @@ def _extract_device_ports(device: Device, db: Session) -> list:
 
 
 def _group_ports_by_direction(device: Device, ports: list) -> dict:
-    """按实际电流方向分组端口（基于连接关系和upstream_downstream字段）"""
+    """鎸夊疄闄呯數娴佹柟鍚戝垎缁勭鍙ｏ紙鍩轰簬杩炴帴鍏崇郴鍜寀pstream_downstream瀛楁锛?"""
     groups = {
         'input': [],
         'output': [],
@@ -5151,10 +4853,10 @@ def _group_ports_by_direction(device: Device, ports: list) -> dict:
     }
     
     for port in ports:
-        # 使用基于实际连接关系的方向判断，而不是基于设备类型和端口名称的推测
+        # 浣跨敤鍩轰簬瀹為檯杩炴帴鍏崇郴鐨勬柟鍚戝垽鏂紝鑰屼笉鏄熀浜庤澶囩被鍨嬪拰绔彛鍚嶇О鐨勬帹娴?
         direction = port.get('direction', 'bidirectional')
         
-        # 如果方向仍然不明确，则使用设备类型和端口名称作为备用判断
+        # 濡傛灉鏂瑰悜浠嶇劧涓嶆槑纭紝鍒欎娇鐢ㄨ澶囩被鍨嬪拰绔彛鍚嶇О浣滀负澶囩敤鍒ゆ柇
         if direction == 'bidirectional':
             direction = _determine_port_direction(device.device_type, port['name'], 'bidirectional')
         
@@ -5164,97 +4866,97 @@ def _group_ports_by_direction(device: Device, ports: list) -> dict:
 
 
 def _determine_actual_port_direction(selected_device_id: int, source_device_id: int, target_device_id: int, upstream_downstream: str, device_role: str) -> str:
-    """基于upstream_downstream字段和设备角色确定端口的实际电流方向
-        selected_device_id: 用户选中查看的设备ID
-        source_device_id: 连接中的源设备ID
-        target_device_id: 连接中的目标设备ID
-        upstream_downstream: 连接的上下游关系（"上游"或"下游"）
-        device_role: 选中设备在此连接中的角色（"source"或"target"）
+    """鍩轰簬upstream_downstream瀛楁鍜岃澶囪鑹茬‘瀹氱鍙ｇ殑瀹為檯鐢垫祦鏂瑰悜
+        selected_device_id: 鐢ㄦ埛閫変腑鏌ョ湅鐨勮澶嘔D
+        source_device_id: 杩炴帴涓殑婧愯澶嘔D
+        target_device_id: 杩炴帴涓殑鐩爣璁惧ID
+        upstream_downstream: 杩炴帴鐨勪笂涓嬫父鍏崇郴锛?涓婃父"鎴?涓嬫父"锛?
+        device_role: 閫変腑璁惧鍦ㄦ杩炴帴涓殑瑙掕壊锛?source"鎴?target"锛?
     
     Returns:
-        str: 端口方向（"input"、"output"或"bidirectional"）
+        str: 绔彛鏂瑰悜锛?input"銆?output"鎴?bidirectional"锛?
     """
     if not upstream_downstream:
         return 'bidirectional'
     
-    # 根据upstream_downstream字段和设备角色判断电流方向
-    if upstream_downstream == "上游":
-        # 上游关系：电流从source设备流向target设备
+    # 鏍规嵁upstream_downstream瀛楁鍜岃澶囪鑹插垽鏂數娴佹柟鍚?
+    if upstream_downstream == "涓婃父":
+        # 涓婃父鍏崇郴锛氱數娴佷粠source璁惧娴佸悜target璁惧
         if device_role == 'source':
-            # 选中设备是源设备，输出电力
+            # 閫変腑璁惧鏄簮璁惧锛岃緭鍑虹數鍔?
             return 'output'
         else:  # device_role == 'target'
-            # 选中设备是目标设备，接收电力
+            # 閫変腑璁惧鏄洰鏍囪澶囷紝鎺ユ敹鐢靛姏
             return 'input'
-    elif upstream_downstream == "下游":
-        # 下游关系：电流从target设备流向source设备
+    elif upstream_downstream == "涓嬫父":
+        # 涓嬫父鍏崇郴锛氱數娴佷粠target璁惧娴佸悜source璁惧
         if device_role == 'source':
-            # 选中设备是源设备，但电流方向相反，所以接收电力
+            # 閫変腑璁惧鏄簮璁惧锛屼絾鐢垫祦鏂瑰悜鐩稿弽锛屾墍浠ユ帴鏀剁數鍔?
             return 'input'
         else:  # device_role == 'target'
-            # 选中设备是目标设备，但电流方向相反，所以输出电力
+            # 閫変腑璁惧鏄洰鏍囪澶囷紝浣嗙數娴佹柟鍚戠浉鍙嶏紝鎵€浠ヨ緭鍑虹數鍔?
             return 'output'
     else:
-        # 未知的upstream_downstream值，使用备用判断
+        # 鏈煡鐨剈pstream_downstream鍊硷紝浣跨敤澶囩敤鍒ゆ柇
         return 'bidirectional'
 
 def _determine_port_direction(device_type: str, port_name: str, default_direction: str) -> str:
-    """判断端口的电流方向"""
+    """鍒ゆ柇绔彛鐨勭數娴佹柟鍚?"""
     if not device_type or not port_name:
         return default_direction
     
     device_type = device_type.strip()
     port_name = port_name.strip().upper()
     
-    # 基于设备类型的端口方向规则
+    # 鍩轰簬璁惧绫诲瀷鐨勭鍙ｆ柟鍚戣鍒?
     device_rules = {
-        '发电机组': {
+        '鍙戠數鏈虹粍': {
         },
         'UPS': {
-            'input': ['输入', 'INPUT', 'AC_IN', 'BYPASS', '旁路', '进线'],
-            'output': ['输出', 'OUTPUT', 'AC_OUT', '出线']
+            'input': ['杈撳叆', 'INPUT', 'AC_IN', 'BYPASS', '鏃佽矾', '杩涚嚎'],
+            'output': ['杈撳嚭', 'OUTPUT', 'AC_OUT', '鍑虹嚎']
         },
-        '变压器': {
-            'input': ['一次', 'PRIMARY', '高压', 'HV', '进线'],
-            'output': ['二次', 'SECONDARY', '低压', 'LV', '出线']
+        '鍙樺帇鍣?: {
+            'input': ['涓€娆?, 'PRIMARY', '楂樺帇', 'HV', '杩涚嚎'],
+            'output': ['浜屾', 'SECONDARY', '浣庡帇', 'LV', '鍑虹嚎']
         },
-        '高压配电柜': {
-            'input': ['进线', 'INPUT', '母线进线', '主进线'],
-            'output': ['出线', 'OUTPUT', '馈线', '分支']
+        '楂樺帇閰嶇數鏌?: {
+            'input': ['杩涚嚎', 'INPUT', '姣嶇嚎杩涚嚎', '涓昏繘绾?],
+            'output': ['鍑虹嚎', 'OUTPUT', '棣堢嚎', '鍒嗘敮']
         },
-        '低压配电柜': {
-            'input': ['进线', 'INPUT', '母线进线', '主进线'],
-            'output': ['出线', 'OUTPUT', '馈线', '分支']
+        '浣庡帇閰嶇數鏌?: {
+            'input': ['杩涚嚎', 'INPUT', '姣嶇嚎杩涚嚎', '涓昏繘绾?],
+            'output': ['鍑虹嚎', 'OUTPUT', '棣堢嚎', '鍒嗘敮']
         },
-        'ATS柜': {
-            'input': ['进线', 'INPUT', '常用', '备用', 'N', 'E'],
-            'output': ['出线', 'OUTPUT', '负载']
+        'ATS鏌?: {
+            'input': ['杩涚嚎', 'INPUT', '甯哥敤', '澶囩敤', 'N', 'E'],
+            'output': ['鍑虹嚎', 'OUTPUT', '璐熻浇']
         }
     }
     
-    # 检查设备类型规则
+    # 妫€鏌ヨ澶囩被鍨嬭鍒?
     rules = device_rules.get(device_type, {})
     
     for direction, keywords in rules.items():
         if any(keyword in port_name for keyword in keywords):
             return direction
     
-    # 通用关键词检查
-    if any(keyword in port_name for keyword in ['进线', 'INPUT', 'IN', '输入', '一次', 'PRIMARY']):
+    # 閫氱敤鍏抽敭璇嶆鏌?
+    if any(keyword in port_name for keyword in ['杩涚嚎', 'INPUT', 'IN', '杈撳叆', '涓€娆?, 'PRIMARY']):
         return 'input'
-    elif any(keyword in port_name for keyword in ['出线', 'OUTPUT', 'OUT', '输出', '二次', 'SECONDARY', '馈线']):
+    elif any(keyword in port_name for keyword in ['鍑虹嚎', 'OUTPUT', 'OUT', '杈撳嚭', '浜屾', 'SECONDARY', '棣堢嚎']):
         return 'output'
     
-    # 如果无法判断，使用默认方向
+    # 濡傛灉鏃犳硶鍒ゆ柇锛屼娇鐢ㄩ粯璁ゆ柟鍚?
     return default_direction
 
 
 def _create_bus_node(device: Device, direction: str, ports: list) -> dict:
-    """创建总线节点"""
+    """鍒涘缓鎬荤嚎鑺傜偣"""
     direction_labels = {
-        'input': '输入侧',
-        'output': '输出侧',
-        'bidirectional': '双向'
+        'input': '杈撳叆渚?,
+        'output': '杈撳嚭渚?,
+        'bidirectional': '鍙屽悜'
     }
     
     direction_colors = {
@@ -5268,8 +4970,8 @@ def _create_bus_node(device: Device, direction: str, ports: list) -> dict:
     return {
         'id': f"bus_{device.id}_{direction}",
         'type': 'bus',
-        'label': f"{direction_labels.get(direction, direction)}总线",
-        'title': f"{device.name} {direction_labels.get(direction, direction)}侧端口总线\n包含端口: {', '.join(port_names[:5])}{'...' if len(port_names) > 5 else ''}",
+        'label': f"{direction_labels.get(direction, direction)}鎬荤嚎",
+        'title': f"{device.name} {direction_labels.get(direction, direction)}渚х鍙ｆ€荤嚎\n鍖呭惈绔彛: {', '.join(port_names[:5])}{'...' if len(port_names) > 5 else ''}",
         'device_id': device.id,
         'device_name': device.name,
         'device_type': device.device_type,
@@ -5298,19 +5000,19 @@ def _create_bus_node(device: Device, direction: str, ports: list) -> dict:
 
 def _split_ports_into_chunks(ports: list, max_ports_per_bus: int = 10) -> list:
     """
-    将端口列表按指定数量分组，每组创建一条总线
+    灏嗙鍙ｅ垪琛ㄦ寜鎸囧畾鏁伴噺鍒嗙粍锛屾瘡缁勫垱寤轰竴鏉℃€荤嚎
     
     Args:
-        ports: 端口列表
-        max_ports_per_bus: 每条总线最大端口数，默认10个
+        ports: 绔彛鍒楄〃
+        max_ports_per_bus: 姣忔潯鎬荤嚎鏈€澶х鍙ｆ暟锛岄粯璁?0涓?
     
     Returns:
-        list: 分组后的端口列表，每个元素是一个端口组
+        list: 鍒嗙粍鍚庣殑绔彛鍒楄〃锛屾瘡涓厓绱犳槸涓€涓鍙ｇ粍
     """
     if not ports:
         return []
     
-    # 将端口列表按指定数量分组
+    # 灏嗙鍙ｅ垪琛ㄦ寜鎸囧畾鏁伴噺鍒嗙粍
     chunks = []
     for i in range(0, len(ports), max_ports_per_bus):
         chunk = ports[i:i + max_ports_per_bus]
@@ -5320,7 +5022,7 @@ def _split_ports_into_chunks(ports: list, max_ports_per_bus: int = 10) -> list:
 
 
 def _create_connected_device_node(device: Device, port: dict, db: Session) -> dict:
-    """为总线式布局创建对端设备节点"""
+    """涓烘€荤嚎寮忓竷灞€鍒涘缓瀵圭璁惧鑺傜偣"""
     if not port.get('connected_device_id'):
         return None
         
@@ -5328,14 +5030,14 @@ def _create_connected_device_node(device: Device, port: dict, db: Session) -> di
     if not connected_device:
         return None
     
-    # 设备类型颜色映射
+    # 璁惧绫诲瀷棰滆壊鏄犲皠
     device_colors = {
-        '发电机组': '#4CAF50',
+        '鍙戠數鏈虹粍': '#4CAF50',
         'UPS': '#2196F3', 
-        '变压器': '#FF9800',
-        '配电柜': '#9C27B0',
-        '开关柜': '#795548',
-        '电池组': '#607D8B'
+        '鍙樺帇鍣?: '#FF9800',
+        '閰嶇數鏌?: '#9C27B0',
+        '寮€鍏虫煖': '#795548',
+        '鐢垫睜缁?: '#607D8B'
     }
     
     base_color = device_colors.get(connected_device.device_type, '#757575')
@@ -5344,7 +5046,7 @@ def _create_connected_device_node(device: Device, port: dict, db: Session) -> di
         'id': f"connected_device_{connected_device.id}_from_{device.id}_{port['name']}",
         'type': 'connected_device',
         'label': connected_device.name,
-        'title': f"对端设备: {connected_device.name}\n类型: {connected_device.device_type}\n站点: {connected_device.station}\n型号: {connected_device.model or 'N/A'}",
+        'title': f"瀵圭璁惧: {connected_device.name}\n绫诲瀷: {connected_device.device_type}\n绔欑偣: {connected_device.station}\n鍨嬪彿: {connected_device.model or 'N/A'}",
         'device_id': connected_device.id,
         'device_name': connected_device.name,
         'device_type': connected_device.device_type,
@@ -5367,64 +5069,64 @@ def _create_connected_device_node(device: Device, port: dict, db: Session) -> di
     }
 
 def _create_connected_device_port_node(device: Device, port: dict, db: Session) -> dict:
-    """为总线式布局创建对端设备的简化端口节点"""
+    """涓烘€荤嚎寮忓竷灞€鍒涘缓瀵圭璁惧鐨勭畝鍖栫鍙ｈ妭鐐?"""
     if not port.get('connected_device_id') or not port.get('connection_id'):
         return None
     
     try:
-        # 获取对端设备信息
+        # 鑾峰彇瀵圭璁惧淇℃伅
         connected_device = db.query(Device).filter(Device.id == port['connected_device_id']).first()
         if not connected_device:
             return None
         
-        # 获取连接信息
+        # 鑾峰彇杩炴帴淇℃伅
         connection = db.query(Connection).filter(Connection.id == port['connection_id']).first()
         if not connection:
             return None
         
-        # 确定对端端口信息
-        connected_port_name = f"连接{connection.id}"  # 改进默认名称
-        connected_port_type = "未知"
+        # 纭畾瀵圭绔彛淇℃伅
+        connected_port_name = f"杩炴帴{connection.id}"  # 鏀硅繘榛樿鍚嶇О
+        connected_port_type = "鏈煡"
         
         if connection.source_device_id == device.id:
-            # 当前设备是源设备，对端是目标设备的端口
+            # 褰撳墠璁惧鏄簮璁惧锛屽绔槸鐩爣璁惧鐨勭鍙?
             if connection.target_fuse_number:
-                connected_port_name = f"熔丝-{connection.target_fuse_number}"
-                connected_port_type = "熔丝"
+                connected_port_name = f"鐔斾笣-{connection.target_fuse_number}"
+                connected_port_type = "鐔斾笣"
             elif connection.target_breaker_number:
-                connected_port_name = f"空开-{connection.target_breaker_number}"
-                connected_port_type = "空开"
+                connected_port_name = f"绌哄紑-{connection.target_breaker_number}"
+                connected_port_type = "绌哄紑"
             else:
-                # 当目标端口信息缺失时，使用更有意义的标识
-                connected_port_name = f"入线{connection.id}"
+                # 褰撶洰鏍囩鍙ｄ俊鎭己澶辨椂锛屼娇鐢ㄦ洿鏈夋剰涔夌殑鏍囪瘑
+                connected_port_name = f"鍏ョ嚎{connection.id}"
         else:
-            # 当前设备是目标设备，对端是源设备的端口
+            # 褰撳墠璁惧鏄洰鏍囪澶囷紝瀵圭鏄簮璁惧鐨勭鍙?
             if connection.source_fuse_number:
-                connected_port_name = f"熔丝-{connection.source_fuse_number}"
-                connected_port_type = "熔丝"
+                connected_port_name = f"鐔斾笣-{connection.source_fuse_number}"
+                connected_port_type = "鐔斾笣"
             elif connection.source_breaker_number:
-                connected_port_name = f"空开-{connection.source_breaker_number}"
-                connected_port_type = "空开"
+                connected_port_name = f"绌哄紑-{connection.source_breaker_number}"
+                connected_port_type = "绌哄紑"
             else:
-                # 当源端口信息缺失时，使用更有意义的标识
-                connected_port_name = f"出线{connection.id}"
+                # 褰撴簮绔彛淇℃伅缂哄け鏃讹紝浣跨敤鏇存湁鎰忎箟鐨勬爣璇?
+                connected_port_name = f"鍑虹嚎{connection.id}"
         
-        # 端口颜色配置
+        # 绔彛棰滆壊閰嶇疆
         port_colors = {
-            '熔丝': '#FF9800',  # 橙色
-            '空开': '#4CAF50',  # 绿色
-            '接触器': '#2196F3',  # 蓝色
-            '开关': '#9C27B0'     # 紫色
+            '鐔斾笣': '#FF9800',  # 姗欒壊
+            '绌哄紑': '#4CAF50',  # 缁胯壊
+            '鎺ヨЕ鍣?: '#2196F3',  # 钃濊壊
+            '寮€鍏?: '#9C27B0'     # 绱壊
         }
         
         base_color = port_colors.get(connected_port_type, '#757575')
         
-        # 使用连接ID确保节点ID的唯一性，避免重复ID问题
+        # 浣跨敤杩炴帴ID纭繚鑺傜偣ID鐨勫敮涓€鎬э紝閬垮厤閲嶅ID闂
         return {
             'id': f"connected_port_{connected_device.id}_{connection.id}_{connected_port_name.replace('-', '_')}",
             'type': 'connected_port',
-            'label': f"{connected_device.name}·{connected_port_name}",
-            'title': f"{connected_device.name}·{connected_port_name}\n设备类型: {connected_device.device_type or 'N/A'}\n连接到: {device.name}·{port['name']}",
+            'label': f"{connected_device.name}路{connected_port_name}",
+            'title': f"{connected_device.name}路{connected_port_name}\n璁惧绫诲瀷: {connected_device.device_type or 'N/A'}\n杩炴帴鍒? {device.name}路{port['name']}",
             'device_id': connected_device.id,
             'device_name': connected_device.name,
             'device_type': connected_device.device_type,
@@ -5448,71 +5150,71 @@ def _create_connected_device_port_node(device: Device, port: dict, db: Session) 
                 'size': 9,
                 'color': '#212121'
             },
-            # 设置位置，使其显示在图的右侧
-            'x': 300,  # 相对于查询设备的右侧位置
-            'y': 0     # 垂直居中
+            # 璁剧疆浣嶇疆锛屼娇鍏舵樉绀哄湪鍥剧殑鍙充晶
+            'x': 300,  # 鐩稿浜庢煡璇㈣澶囩殑鍙充晶浣嶇疆
+            'y': 0     # 鍨傜洿灞呬腑
         }
         
     except Exception as e:
-        print(f"创建对端设备端口节点失败: {str(e)}")
+        print(f"鍒涘缓瀵圭璁惧绔彛鑺傜偣澶辫触: {str(e)}")
         return None
 
 
 def _create_port_node_for_bus(device: Device, port: dict, direction: str, db: Session) -> dict:
-    """为总线式布局创建端口节点，包含对端设备信息"""
+    """涓烘€荤嚎寮忓竷灞€鍒涘缓绔彛鑺傜偣锛屽寘鍚绔澶囦俊鎭?"""
     port_colors = {
-        '熔丝': '#FF9800',  # 橙色
-        '空开': '#4CAF50',  # 绿色
-        '接触器': '#2196F3',  # 蓝色
-        '开关': '#9C27B0'     # 紫色
+        '鐔斾笣': '#FF9800',  # 姗欒壊
+        '绌哄紑': '#4CAF50',  # 缁胯壊
+        '鎺ヨЕ鍣?: '#2196F3',  # 钃濊壊
+        '寮€鍏?: '#9C27B0'     # 绱壊
     }
     
-    # 将端口类型中的英文转换为中文
+    # 灏嗙鍙ｇ被鍨嬩腑鐨勮嫳鏂囪浆鎹负涓枃
     port_type_chinese = port['type']
-    if 'fuse' in port['type'].lower() or '熔断器' in port['type']:
-        port_type_chinese = '熔丝'
-    elif 'breaker' in port['type'].lower() or '断路器' in port['type']:
-        port_type_chinese = '空开'
+    if 'fuse' in port['type'].lower() or '鐔旀柇鍣? in port['type']:
+        port_type_chinese = '鐔斾笣'
+    elif 'breaker' in port['type'].lower() or '鏂矾鍣? in port['type']:
+        port_type_chinese = '绌哄紑'
     
     base_color = port_colors.get(port_type_chinese, '#757575')
     
-    # 获取对端设备信息
-    connected_device_info = "空闲"
-    connected_port_info = "空闲"
+    # 鑾峰彇瀵圭璁惧淇℃伅
+    connected_device_info = "绌洪棽"
+    connected_port_info = "绌洪棽"
     if port.get('connected_device_id'):
         connected_device = db.query(Device).filter(Device.id == port['connected_device_id']).first()
         if connected_device:
             connected_device_info = f"{connected_device.name} ({connected_device.device_type})"
             
-            # 获取对端端口信息
+            # 鑾峰彇瀵圭绔彛淇℃伅
             if port.get('connection_id'):
                 connection = db.query(Connection).filter(Connection.id == port['connection_id']).first()
                 if connection:
-                    # 根据当前设备在连接中的角色确定对端端口
+                    # 鏍规嵁褰撳墠璁惧鍦ㄨ繛鎺ヤ腑鐨勮鑹茬‘瀹氬绔鍙?
                     if connection.source_device_id == device.id:
-                        # 当前设备是源设备，对端是目标设备的端口
+                        # 褰撳墠璁惧鏄簮璁惧锛屽绔槸鐩爣璁惧鐨勭鍙?
                         if connection.target_fuse_number:
-                            connected_port_info = f"熔丝-{connection.target_fuse_number}"
+                            connected_port_info = f"鐔斾笣-{connection.target_fuse_number}"
                         elif connection.target_breaker_number:
-                            connected_port_info = f"空开-{connection.target_breaker_number}"
+                            connected_port_info = f"绌哄紑-{connection.target_breaker_number}"
                     else:
-                        # 当前设备是目标设备，对端是源设备的端口
+                        # 褰撳墠璁惧鏄洰鏍囪澶囷紝瀵圭鏄簮璁惧鐨勭鍙?
                         if connection.source_fuse_number:
-                            connected_port_info = f"熔丝-{connection.source_fuse_number}"
+                            connected_port_info = f"鐔斾笣-{connection.source_fuse_number}"
                         elif connection.source_breaker_number:
-                            connected_port_info = f"空开-{connection.source_breaker_number}"
+                            connected_port_info = f"绌哄紑-{connection.source_breaker_number}"
     
-    # 使用用户提交的原始端口名，不做任何简化或翻译
+    # 浣跨敤鐢ㄦ埛鎻愪氦鐨勫師濮嬬鍙ｅ悕锛屼笉鍋氫换浣曠畝鍖栨垨缈昏瘧
     original_port_name = port['name']
 
-    # 使用连接ID确保节点ID的唯一性，避免重复ID问题
+    # 浣跨敤杩炴帴ID纭繚鑺傜偣ID鐨勫敮涓€鎬э紝閬垮厤閲嶅ID闂
     connection_suffix = f"_{port.get('connection_id', 'no_conn')}"
     
     return {
         'id': f"port_{device.id}_{original_port_name.replace(' ', '_')}{connection_suffix}",
         'type': 'port',
         'label': original_port_name,
-        'title': f"{device.name} - {original_port_name}\n类型: {port_type_chinese}\n规格: {port.get('spec', 'N/A')}\n方向: {direction}\n连接到: {connected_device_info}\n对端端口: {connected_port_info}",
+        'title': f"{device.name} - {original_port_name}\n绫诲瀷: {port_type_chinese}\n瑙勬牸: {port.get('spec', 'N/A')}\n鏂瑰悜: {direction}\n杩炴帴鍒? {connected_device_info}\n瀵圭绔彛: {connected_port_info}",
         'device_id': device.id,
         'device_name': device.name,
         'device_type': device.device_type,
@@ -5544,7 +5246,7 @@ def _create_port_node_for_bus(device: Device, port: dict, direction: str, db: Se
 
 
 def _create_bus_to_port_edge(bus_id: str, port_id: str) -> dict:
-    """创建总线到端口的连接边"""
+    """鍒涘缓鎬荤嚎鍒扮鍙ｇ殑杩炴帴杈?"""
     return {
         'id': f"bus_port_{bus_id}_{port_id}",
         'type': 'bus_connection',
@@ -5567,30 +5269,30 @@ def _create_bus_to_port_edge(bus_id: str, port_id: str) -> dict:
 
 
 def _create_bus_port_edges(connection, direction: str) -> list:
-    """为总线式布局创建端口到端口的连接边"""
+    """涓烘€荤嚎寮忓竷灞€鍒涘缓绔彛鍒扮鍙ｇ殑杩炴帴杈?"""
     edges = []
     
     try:
         if direction == "upstream":
-            # 上游连接：从源设备端口到目标设备端口
+            # 涓婃父杩炴帴锛氫粠婧愯澶囩鍙ｅ埌鐩爣璁惧绔彛
             source_device = connection.source_device
             target_device = connection.target_device
             
-            # 源端口（输出端口）- 使用与_create_port_node_for_bus一致的ID格式
+            # 婧愮鍙ｏ紙杈撳嚭绔彛锛? 浣跨敤涓巁create_port_node_for_bus涓€鑷寸殑ID鏍煎紡
             source_ports = []
             if connection.source_fuse_number:
-                source_ports.append(f"port_{source_device.id}_熔丝-{connection.source_fuse_number}_{connection.id}")
+                source_ports.append(f"port_{source_device.id}_鐔斾笣-{connection.source_fuse_number}_{connection.id}")
             if connection.source_breaker_number:
-                source_ports.append(f"port_{source_device.id}_空开-{connection.source_breaker_number}_{connection.id}")
+                source_ports.append(f"port_{source_device.id}_绌哄紑-{connection.source_breaker_number}_{connection.id}")
             
-            # 目标端口（输入端口）- 使用与_create_port_node_for_bus一致的ID格式
+            # 鐩爣绔彛锛堣緭鍏ョ鍙ｏ級- 浣跨敤涓巁create_port_node_for_bus涓€鑷寸殑ID鏍煎紡
             target_ports = []
             if connection.target_fuse_number:
-                target_ports.append(f"port_{target_device.id}_熔丝-{connection.target_fuse_number}_{connection.id}")
+                target_ports.append(f"port_{target_device.id}_鐔斾笣-{connection.target_fuse_number}_{connection.id}")
             if connection.target_breaker_number:
-                target_ports.append(f"port_{target_device.id}_空开-{connection.target_breaker_number}_{connection.id}")
+                target_ports.append(f"port_{target_device.id}_绌哄紑-{connection.target_breaker_number}_{connection.id}")
             
-            # 创建端口间连接
+            # 鍒涘缓绔彛闂磋繛鎺?
             for source_port in source_ports:
                 for target_port in target_ports:
                     edge = {
@@ -5618,25 +5320,25 @@ def _create_bus_port_edges(connection, direction: str) -> list:
                     edges.append(edge)
         
         elif direction == "downstream":
-            # 下游连接：从当前设备端口到目标设备端口
+            # 涓嬫父杩炴帴锛氫粠褰撳墠璁惧绔彛鍒扮洰鏍囪澶囩鍙?
             source_device = connection.source_device
             target_device = connection.target_device
             
-            # 源端口（输出端口）- 使用与_create_port_node_for_bus一致的ID格式
+            # 婧愮鍙ｏ紙杈撳嚭绔彛锛? 浣跨敤涓巁create_port_node_for_bus涓€鑷寸殑ID鏍煎紡
             source_ports = []
             if connection.source_fuse_number:
-                source_ports.append(f"port_{connection.id}_{source_device.id}_熔丝-{connection.source_fuse_number}")
+                source_ports.append(f"port_{connection.id}_{source_device.id}_鐔斾笣-{connection.source_fuse_number}")
             if connection.source_breaker_number:
-                source_ports.append(f"port_{connection.id}_{source_device.id}_空开-{connection.source_breaker_number}")
+                source_ports.append(f"port_{connection.id}_{source_device.id}_绌哄紑-{connection.source_breaker_number}")
             
-            # 目标端口（输入端口）- 使用与_create_port_node_for_bus一致的ID格式
+            # 鐩爣绔彛锛堣緭鍏ョ鍙ｏ級- 浣跨敤涓巁create_port_node_for_bus涓€鑷寸殑ID鏍煎紡
             target_ports = []
             if connection.target_fuse_number:
-                target_ports.append(f"port_{connection.id}_{target_device.id}_熔丝-{connection.target_fuse_number}")
+                target_ports.append(f"port_{connection.id}_{target_device.id}_鐔斾笣-{connection.target_fuse_number}")
             if connection.target_breaker_number:
-                target_ports.append(f"port_{connection.id}_{target_device.id}_空开-{connection.target_breaker_number}")
+                target_ports.append(f"port_{connection.id}_{target_device.id}_绌哄紑-{connection.target_breaker_number}")
             
-            # 创建端口间连接
+            # 鍒涘缓绔彛闂磋繛鎺?
             for source_port in source_ports:
                 for target_port in target_ports:
                     edge = {
@@ -5664,125 +5366,192 @@ def _create_bus_port_edges(connection, direction: str) -> list:
                     edges.append(edge)
     
     except Exception as e:
-        print(f"创建总线端口连接失败: {str(e)}")
+        print(f"鍒涘缓鎬荤嚎绔彛杩炴帴澶辫触: {str(e)}")
     
     return edges
 
 
 def _get_connection_color(connection_type: str) -> str:
-    """根据连接类型获取连线颜色"""
+    """鏍规嵁杩炴帴绫诲瀷鑾峰彇杩炵嚎棰滆壊"""
     colors = {
-        '电力连接': '#F44336',    # 红色
-        '控制连接': '#2196F3',    # 蓝色
-        '通信连接': '#4CAF50',    # 绿色
-        '接地连接': '#795548',    # 棕色
-        '电缆连接': '#FF5722',    # 深橙色
-        '母线连接': '#9C27B0'     # 紫色
+        '鐢靛姏杩炴帴': '#F44336',    # 绾㈣壊
+        '鎺у埗杩炴帴': '#2196F3',    # 钃濊壊
+        '閫氫俊杩炴帴': '#4CAF50',    # 缁胯壊
+        '鎺ュ湴杩炴帴': '#795548',    # 妫曡壊
+        '鐢电紗杩炴帴': '#FF5722',    # 娣辨鑹?
+        '姣嶇嚎杩炴帴': '#9C27B0'     # 绱壊
     }
     return colors.get(connection_type, '#424242')
 
 
 def _get_connection_width_from_connection(connection) -> int:
-    """从连接对象推导电压等级并获取连线宽度"""
+    """浠庤繛鎺ュ璞℃帹瀵肩數鍘嬬瓑绾у苟鑾峰彇杩炵嚎瀹藉害"""
     try:
-        # 尝试从额定电流推导电压等级
+        # 灏濊瘯浠庨瀹氱數娴佹帹瀵肩數鍘嬬瓑绾?
         rated_current = None
         
-        # 优先使用数值型的rated_current字段
+        # 浼樺厛浣跨敤鏁板€煎瀷鐨剅ated_current瀛楁
         if hasattr(connection, 'rated_current') and connection.rated_current:
             rated_current = float(connection.rated_current)
-        # 其次尝试从A端额定电流解析
+        # 鍏舵灏濊瘯浠嶢绔瀹氱數娴佽В鏋?
         elif hasattr(connection, 'a_rated_current') and connection.a_rated_current:
-            # 提取数字部分，如"63A" -> 63
+            # 鎻愬彇鏁板瓧閮ㄥ垎锛屽"63A" -> 63
             import re
             match = re.search(r'(\d+(?:\.\d+)?)', str(connection.a_rated_current))
             if match:
                 rated_current = float(match.group(1))
-        # 最后尝试从B端额定电流解析
+        # 鏈€鍚庡皾璇曚粠B绔瀹氱數娴佽В鏋?
         elif hasattr(connection, 'b_rated_current') and connection.b_rated_current:
             import re
             match = re.search(r'(\d+(?:\.\d+)?)', str(connection.b_rated_current))
             if match:
                 rated_current = float(match.group(1))
         
-        # 根据额定电流推导电压等级和线宽
+        # 鏍规嵁棰濆畾鐢垫祦鎺ㄥ鐢靛帇绛夌骇鍜岀嚎瀹?
         if rated_current:
-            if rated_current >= 1000:      # 大电流，可能是高压
+            if rated_current >= 1000:      # 澶х數娴侊紝鍙兘鏄珮鍘?
                 return 4
-            elif rated_current >= 100:     # 中等电流，可能是中压
+            elif rated_current >= 100:     # 涓瓑鐢垫祦锛屽彲鑳芥槸涓帇
                 return 3
-            else:                          # 小电流，低压
+            else:                          # 灏忕數娴侊紝浣庡帇
                 return 2
         
-        # 如果无法从电流推导，尝试从连接类型推导
+        # 濡傛灉鏃犳硶浠庣數娴佹帹瀵硷紝灏濊瘯浠庤繛鎺ョ被鍨嬫帹瀵?
         if hasattr(connection, 'connection_type') and connection.connection_type:
             connection_type = connection.connection_type.lower()
-            if 'high' in connection_type or '高压' in connection_type:
+            if 'high' in connection_type or '楂樺帇' in connection_type:
                 return 4
-            elif 'medium' in connection_type or '中压' in connection_type:
+            elif 'medium' in connection_type or '涓帇' in connection_type:
                 return 3
         
-        # 默认返回低压线宽
+        # 榛樿杩斿洖浣庡帇绾垮
         return 2
         
     except Exception as e:
-        print(f"推导连线宽度失败: {str(e)}")
+        print(f"鎺ㄥ杩炵嚎瀹藉害澶辫触: {str(e)}")
         return 2
 
 
 def _get_connection_width(voltage_level) -> int:
-    """根据电压等级获取连线宽度（保留原函数以兼容其他调用）"""
+    """鏍规嵁鐢靛帇绛夌骇鑾峰彇杩炵嚎瀹藉害锛堜繚鐣欏師鍑芥暟浠ュ吋瀹瑰叾浠栬皟鐢級"""
     if voltage_level is None:
         return 2
     
     try:
         voltage = float(voltage_level)
-        if voltage >= 10000:      # 高压
+        if voltage >= 10000:      # 楂樺帇
             return 4
-        elif voltage >= 1000:     # 中压
+        elif voltage >= 1000:     # 涓帇
             return 3
-        else:                     # 低压
+        else:                     # 浣庡帇
             return 2
     except (ValueError, TypeError):
         return 2
 
 
 def _get_connection_highlight_color(connection_type: str) -> str:
-    """获取连接高亮颜色"""
+    """鑾峰彇杩炴帴楂樹寒棰滆壊"""
     base_color = _get_connection_color(connection_type)
     return _adjust_color_brightness(base_color, 1.3)
 
 
 def _adjust_color_brightness(hex_color: str, factor: float) -> str:
-    """调整颜色亮度"""
+    """璋冩暣棰滆壊浜害"""
     try:
-        # 移除 # 符号
+        # 绉婚櫎 # 绗﹀彿
         hex_color = hex_color.lstrip('#')
         
-        # 转换为 RGB
+        # 杞崲涓?RGB
         r = int(hex_color[0:2], 16)
         g = int(hex_color[2:4], 16)
         b = int(hex_color[4:6], 16)
         
-        # 调整亮度
+        # 璋冩暣浜害
         r = min(255, max(0, int(r * factor)))
         g = min(255, max(0, int(g * factor)))
         b = min(255, max(0, int(b * factor)))
         
-        # 转换回十六进制
+        # 杞崲鍥炲崄鍏繘鍒?
         return f"#{r:02x}{g:02x}{b:02x}"
     except:
-        return hex_color  # 如果转换失败，返回原色
+        return hex_color  # 濡傛灉杞崲澶辫触锛岃繑鍥炲師鑹?
 
 
-# --- 应用启动 ---
-if __name__ == "__main__":
-    import uvicorn
-    print(f"\n🌐 服务器启动地址: http://localhost:{PORT} 或 http://0.0.0.0:{PORT}")
-    print(f"📊 管理界面: http://localhost:{PORT}")
-    print(f"🔗 连接管理: http://localhost:{PORT}/connections")
-    print(f"⚙️  生命周期管理: http://localhost:{PORT}/lifecycle-management")
-    print(f"\n注意：应用程序实际运行在端口 {PORT}")
-    uvicorn.run(app, host="0.0.0.0", port=PORT, reload=False)
+# --- 搴旂敤鍚姩鍏ュ彛缁熶竴鍒?run.py ---
+# 涓洪伩鍏嶉噸澶嶅惎鍔ㄦ湇鍔★紝main.py 涓嶅啀鐩存帴杩愯 uvicorn銆?
+# 璇蜂娇鐢?`python run.py` 鍚姩搴旂敤锛屾垨鍦ㄩ儴缃茬幆澧冪敱杩涚▼绠＄悊鍣ㄥ惎鍔ㄣ€?
+@app.get("/api/devices/search")
+async def search_devices_api(
+    q: Optional[str] = Query(None, description="Fuzzy search by name/asset_id/model/vendor/station"),
+    station: Optional[str] = Query(None, description="Station exact filter"),
+    device_type: Optional[str] = Query(None, description="Device type exact filter"),
+    vendor: Optional[str] = Query(None, description="Vendor exact filter"),
+    limit: int = Query(20, ge=1, le=200, description="Max results"),
+    db: Session = Depends(get_db)
+):
+    """
+    Devices search API for device selector.
+    - Supports fuzzy querying by name/asset_id/model/vendor/station.
+    - Supports exact filters by station/device_type/vendor.
+    Returns fields: id/asset_id/name/station/device_type/vendor/model.
+    """
+    try:
+        query = db.query(Device)
 
-    uvicorn.run(app, host="0.0.0.0", port=PORT, reload=False)
+        # 锟斤拷确锟斤拷锟斤拷
+        if station:
+            query = query.filter(Device.station == station)
+        if device_type:
+            query = query.filter(Device.device_type == device_type)
+        if vendor:
+            query = query.filter(Device.vendor == vendor)
+
+        # 模锟斤拷锟斤拷询
+        if q:
+            q_lower = q.strip().lower()
+            like_pattern = f"%{q_lower}%"
+            query = query.filter(or_(
+                func.lower(Device.name).like(like_pattern),
+                func.lower(Device.asset_id).like(like_pattern),
+                func.lower(Device.model).like(like_pattern),
+                func.lower(Device.vendor).like(like_pattern),
+                func.lower(Device.station).like(like_pattern)
+            ))
+
+        # 锟斤拷锟狡凤拷锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷锟斤拷
+        devices = query.order_by(Device.station.asc(), Device.name.asc()).limit(limit).all()
+
+        result = [
+            {
+                "id": d.id,
+                "asset_id": d.asset_id,
+                "name": d.name,
+                "station": d.station,
+                "device_type": d.device_type,
+                "vendor": d.vendor,
+                "model": d.model,
+            }
+            for d in devices
+        ]
+
+        return JSONResponse(content={
+            "success": True,
+            "data": result
+        })
+    except Exception as e:
+        print(f"Device search failed: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Device search failed: {str(e)}")
+
+
+@app.get("/api/port-topology")
+async def get_port_topology_data_alias(
+    device_id: int = Query(..., description="Device ID"),
+    mode: str = Query("detailed", description="Mode: detailed/compact"),
+    db: Session = Depends(get_db)
+):
+    """
+    Alias for port topology data API (query variant).
+    Equivalent to /api/port-topology/{device_id}, for unified frontend usage.
+    """
+    return await get_port_topology_data(device_id=device_id, mode=mode, db=db)

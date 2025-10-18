@@ -74,3 +74,8 @@
 - 完善位置持久化策略与键位存储方案。
 - 引入端口标签显示开关的实际隐藏/显示逻辑。
 - 增加统计图与报表导出（PDF/Excel）。
+
+迁移与隔离（Topology）
+- 新端口级页面：`/topology`（模板：`templates/topology.html`），与旧 `/graph` 彻底隔离。
+- 参考文档：`docs/拓扑图重构隔离与复用方案.md`、`docs/graph端口拓扑弃用与迁移指南.md`。
+- 新脚本占位：`static/js/topology_page.js`、`static/js/topology_ports.js`；页面不加载 `static/js/port_topology.js`。

@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "fixture": "topology_v2_dto",
+    "station": "递铺",
+    "source": "temp/topology_fixture_sample.csv",
+    "notes": "根据最新CSV生成：远端合并展示；上游箭头；平级无箭头；空闲端口仅生成结构性边（已枚举F9–F25）。"
+  },
+  "nodes": [
+    {"id": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "type": "device", "label": "递铺 新大楼一楼综合机房_1#直流系统直配屏E15", "meta": {"station": "递铺", "device_name": "新大楼一楼综合机房_1#直流系统直配屏E15"}},
+
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:BF1（电池1）", "type": "port", "label": "BF1（电池1）", "meta": {"port_type": "fuse", "spec": "NT4", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:BF2（电池2）", "type": "port", "label": "BF2（电池2）", "meta": {"port_type": "fuse", "spec": "NT4", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F1（出线1）", "type": "port", "label": "F1（出线1）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F2（出线2）", "type": "port", "label": "F2（出线2）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F3（出线3）", "type": "port", "label": "F3（出线3）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F4（出线4）", "type": "port", "label": "F4（出线4）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F5（出线5）", "type": "port", "label": "F5（出线5）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F6（出线6）", "type": "port", "label": "F6（出线6）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F7（出线7）", "type": "port", "label": "F7（出线7）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F8（出线8）", "type": "port", "label": "F8（出线8）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F9（出线9）", "type": "port", "label": "F9（出线9）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F10（出线10）", "type": "port", "label": "F10（出线10）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F11（出线11）", "type": "port", "label": "F11（出线11）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F12（出线12）", "type": "port", "label": "F12（出线12）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F13（出线13）", "type": "port", "label": "F13（出线13）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F14（出线14）", "type": "port", "label": "F14（出线14）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F15（出线15）", "type": "port", "label": "F15（出线15）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F16（出线16）", "type": "port", "label": "F16（出线16）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F17（出线17）", "type": "port", "label": "F17（出线17）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F18（出线18）", "type": "port", "label": "F18（出线18）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F19（出线19）", "type": "port", "label": "F19（出线19）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F20（出线20）", "type": "port", "label": "F20（出线20）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F21（出线21）", "type": "port", "label": "F21（出线21）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F22（出线22）", "type": "port", "label": "F22（出线22）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F23（出线23）", "type": "port", "label": "F23（出线23）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F24（出线24）", "type": "port", "label": "F24（出线24）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F25（出线25）", "type": "port", "label": "F25（出线25）", "meta": {"port_type": "fuse", "spec": "NT3", "rated_current": "500A"}},
+
+    {"id": "port:新大楼三楼电力室_1#直流系统蓄电池01:蓄电池01", "type": "port", "label": "新大楼三楼电力室_1#直流系统蓄电池01 蓄电池01", "meta": {"device_name": "新大楼三楼电力室_1#直流系统蓄电池01", "port_type": "fuse", "spec": "GFM-1500"}},
+    {"id": "port:新大楼三楼电力室_1#直流系统蓄电池02:蓄电池02", "type": "port", "label": "新大楼三楼电力室_1#直流系统蓄电池02 蓄电池02", "meta": {"device_name": "新大楼三楼电力室_1#直流系统蓄电池02", "port_type": "fuse", "spec": "GFM-1500"}},
+
+    {"id": "port:新大楼一楼综合机房_1#直流系统列头柜A18:2L", "type": "port", "label": "新大楼一楼综合机房_1#直流系统列头柜A18 2L", "meta": {"device_name": "新大楼一楼综合机房_1#直流系统列头柜A18", "port_type": "fuse", "spec": "RT16Z-3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统列头柜A18:1L", "type": "port", "label": "新大楼一楼综合机房_1#直流系统列头柜A18 1L", "meta": {"device_name": "新大楼一楼综合机房_1#直流系统列头柜A18", "port_type": "fuse", "spec": "RT16Z-3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统列头柜B18:1L", "type": "port", "label": "新大楼一楼综合机房_1#直流系统列头柜B18 1L", "meta": {"device_name": "新大楼一楼综合机房_1#直流系统列头柜B18", "port_type": "fuse", "spec": "RT16Z-3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统列头柜B18:2L", "type": "port", "label": "新大楼一楼综合机房_1#直流系统列头柜B18 2L", "meta": {"device_name": "新大楼一楼综合机房_1#直流系统列头柜B18", "port_type": "fuse", "spec": "RT16Z-3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_2#直流系统列头柜D01:2L", "type": "port", "label": "新大楼一楼综合机房_2#直流系统列头柜D01 2L", "meta": {"device_name": "新大楼一楼综合机房_2#直流系统列头柜D01", "port_type": "fuse", "spec": "RT16Z-3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_2#直流系统列头柜D01:1L", "type": "port", "label": "新大楼一楼综合机房_2#直流系统列头柜D01 1L", "meta": {"device_name": "新大楼一楼综合机房_2#直流系统列头柜D01", "port_type": "fuse", "spec": "RT16Z-3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统列头柜C18:2L", "type": "port", "label": "新大楼一楼综合机房_1#直流系统列头柜C18 2L", "meta": {"device_name": "新大楼一楼综合机房_1#直流系统列头柜C18", "port_type": "fuse", "spec": "RT16Z-3", "rated_current": "500A"}},
+    {"id": "port:新大楼一楼综合机房_1#直流系统列头柜C18:1L", "type": "port", "label": "新大楼一楼综合机房_1#直流系统列头柜C18 1L", "meta": {"device_name": "新大楼一楼综合机房_1#直流系统列头柜C18", "port_type": "fuse", "spec": "RT16Z-3", "rated_current": "500A"}}
+  ],
+  "edges": [
+    {"id": "edge:struct:BF1", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:BF1（电池1）"},
+    {"id": "edge:struct:BF2", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:BF2（电池2）"},
+    {"id": "edge:struct:F1", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F1（出线1）"},
+    {"id": "edge:struct:F2", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F2（出线2）"},
+    {"id": "edge:struct:F3", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F3（出线3）"},
+    {"id": "edge:struct:F4", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F4（出线4）"},
+    {"id": "edge:struct:F5", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F5（出线5）"},
+    {"id": "edge:struct:F6", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F6（出线6）"},
+    {"id": "edge:struct:F7", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F7（出线7）"},
+    {"id": "edge:struct:F8", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F8（出线8）"},
+
+    {"id": "edge:struct:F9", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F9（出线9）"},
+    {"id": "edge:struct:F10", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F10（出线10）"},
+    {"id": "edge:struct:F11", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F11（出线11）"},
+    {"id": "edge:struct:F12", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F12（出线12）"},
+    {"id": "edge:struct:F13", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F13（出线13）"},
+    {"id": "edge:struct:F14", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F14（出线14）"},
+    {"id": "edge:struct:F15", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F15（出线15）"},
+    {"id": "edge:struct:F16", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F16（出线16）"},
+    {"id": "edge:struct:F17", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F17（出线17）"},
+    {"id": "edge:struct:F18", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F18（出线18）"},
+    {"id": "edge:struct:F19", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F19（出线19）"},
+    {"id": "edge:struct:F20", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F20（出线20）"},
+    {"id": "edge:struct:F21", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F21（出线21）"},
+    {"id": "edge:struct:F22", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F22（出线22）"},
+    {"id": "edge:struct:F23", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F23（出线23）"},
+    {"id": "edge:struct:F24", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F24（出线24）"},
+    {"id": "edge:struct:F25", "kind": "structural", "from": "device:新大楼一楼综合机房_1#直流系统直配屏E15", "to": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F25（出线25）"},
+
+    {"id": "edge:conn:BF1->蓄电池01", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:BF1（电池1）", "to": "port:新大楼三楼电力室_1#直流系统蓄电池01:蓄电池01", "arrows": "", "connection": {"id": "peer-bf1-01", "direction": "peer", "model": "RVVZ-240mm²", "type": "直流"}},
+    {"id": "edge:conn:BF2->蓄电池02", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:BF2（电池2）", "to": "port:新大楼三楼电力室_1#直流系统蓄电池02:蓄电池02", "arrows": "", "connection": {"id": "peer-bf2-02", "direction": "peer", "model": "RVVZ-240mm²", "type": "直流"}},
+
+    {"id": "edge:conn:F1->A18:2L", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F1（出线1）", "to": "port:新大楼一楼综合机房_1#直流系统列头柜A18:2L", "arrows": "to", "connection": {"id": "conn-f1-a18-2l", "direction": "upstream", "model": "RVVZ-240mm²", "type": "直流"}},
+    {"id": "edge:conn:F2->A18:1L", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F2（出线2）", "to": "port:新大楼一楼综合机房_1#直流系统列头柜A18:1L", "arrows": "to", "connection": {"id": "conn-f2-a18-1l", "direction": "upstream", "model": "RVVZ-240mm²", "type": "直流"}},
+    {"id": "edge:conn:F3->B18:1L", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F3（出线3）", "to": "port:新大楼一楼综合机房_1#直流系统列头柜B18:1L", "arrows": "to", "connection": {"id": "conn-f3-b18-1l", "direction": "upstream", "model": "RVVZ-240mm²", "type": "直流"}},
+    {"id": "edge:conn:F4->B18:2L", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F4（出线4）", "to": "port:新大楼一楼综合机房_1#直流系统列头柜B18:2L", "arrows": "to", "connection": {"id": "conn-f4-b18-2l", "direction": "upstream", "model": "RVVZ-240mm²", "type": "直流"}},
+    {"id": "edge:conn:F5->D01:2L", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F5（出线5）", "to": "port:新大楼一楼综合机房_2#直流系统列头柜D01:2L", "arrows": "to", "connection": {"id": "conn-f5-d01-2l", "direction": "upstream", "model": "RVVZ-240mm²", "type": "直流"}},
+    {"id": "edge:conn:F6->D01:1L", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F6（出线6）", "to": "port:新大楼一楼综合机房_2#直流系统列头柜D01:1L", "arrows": "to", "connection": {"id": "conn-f6-d01-1l", "direction": "upstream", "model": "RVVZ-240mm²", "type": "直流"}},
+    {"id": "edge:conn:F7->C18:2L", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F7（出线7）", "to": "port:新大楼一楼综合机房_1#直流系统列头柜C18:2L", "arrows": "to", "connection": {"id": "conn-f7-c18-2l", "direction": "upstream", "model": "RVVZ-240mm²", "type": "直流"}},
+    {"id": "edge:conn:F8->C18:1L", "kind": "connection", "from": "port:新大楼一楼综合机房_1#直流系统直配屏E15:F8（出线8）", "to": "port:新大楼一楼综合机房_1#直流系统列头柜C18:1L", "arrows": "to", "connection": {"id": "conn-f8-c18-1l", "direction": "upstream", "model": "RVVZ-240mm²", "type": "直流"}}
+  ],
+  "exceptions": [
+    {"rows": "12-28", "issue": "电缆型号为空（F9–F25）为空闲端口：已枚举结构性边，仅不生成真实连接边"}
+  ]
+}
