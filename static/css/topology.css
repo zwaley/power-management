@@ -286,3 +286,9 @@
 .fullscreen-topology .node-tooltip {
   transform: translate(-50%, -120%);
 }
+
+#node-details {
+  white-space: pre-line;
+  line-height: 1.5;
+  color: #333;
+}

@@ -48,24 +48,45 @@
   function bindSearch() {
     const input = document.getElementById('device-search-input');
     const listEl = document.getElementById('device-search-results');
+    const status = document.getElementById('status-area');
     if (!input || !listEl) return;
-    input.addEventListener('input', () => {
-      const q = input.value.trim().toLowerCase();
-      if (!q) { listEl.innerHTML = ''; return; }
-      const items = state.devices
-        .filter(d => String(d.name || '').toLowerCase().includes(q) || String(d.id).includes(q))
-        .slice(0, 10);
-      listEl.innerHTML = items.map(d => `<button type="button" class="list-group-item list-group-item-action" data-id="${d.id}">${escapeHtml(d.name)} <span class="text-muted">#${d.id}</span></button>`).join('');
-      listEl.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const id = Number(btn.getAttribute('data-id'));
-          const sel = document.getElementById('device-select');
-          if (sel) sel.value = String(id);
-          input.value = String(id);
-          document.getElementById('status-area').textContent = `选择设备 #${id}`;
-          window.TopologyPorts.render(id).catch(err => console.error(err));
+    let timer = null;
+    async function performSearch(q) {
+      try {
+        const params = new URLSearchParams();
+        if (q) params.set('q', q);
+        params.set('limit', '30');
+        const resp = await fetch(`/api/devices/search?${params.toString()}`);
+        const json = await resp.json();
+        const list = json?.data || [];
+        listEl.innerHTML = list.map(d => `<button type="button" class="list-group-item list-group-item-action" data-id="${d.id}">${escapeHtml(d.name || ('设备' + d.id))} <span class="text-muted">#${d.id}</span></button>`).join('');
+        listEl.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const id = Number(btn.getAttribute('data-id'));
+            const sel = document.getElementById('device-select');
+            if (sel) sel.value = String(id);
+            input.value = String(id);
+            const name = getSelectedDeviceLabel();
+            status.textContent = `选择设备 #${id}`;
+            const levelEl = document.getElementById('level-select');
+            const level = levelEl ? levelEl.value : 'port';
+            if (level === 'device') {
+              window.TopologyDevice.render(id, name).catch(err => console.error(err));
+            } else {
+              window.TopologyPorts.render(id, name).catch(err => console.error(err));
+            }
+          });
         });
-      });
+      } catch (e) {
+        console.warn('搜索失败', e);
+        status.textContent = '搜索失败：' + (e?.message || e);
+      }
+    }
+    input.addEventListener('input', () => {
+      const q = input.value.trim();
+      clearTimeout(timer);
+      if (!q) { listEl.innerHTML = ''; return; }
+      timer = setTimeout(() => performSearch(q), 250);
     });
   }
   function getSelectedDeviceLabel() {
@@ -88,7 +109,13 @@
       }
       const name = getSelectedDeviceLabel();
       document.getElementById('status-area').textContent = `选择设备 #${id}（${name}）`;
-      window.TopologyPorts.render(id, name).catch(err => console.error(err));
+      const levelEl = document.getElementById('level-select');
+      const level = levelEl ? levelEl.value : 'port';
+      if (level === 'device') {
+        window.TopologyDevice.render(id, name).catch(err => console.error(err));
+      } else {
+        window.TopologyPorts.render(id, name).catch(err => console.error(err));
+      }
     });
   }
   function bindRenderButton() {
@@ -104,8 +131,11 @@
       }
       if (!id) id = resolveDeviceIdFromInputs();
       const name = getSelectedDeviceLabel();
-      status.textContent = `开始渲染设备 ${id} 的端口拓扑...`;
-      window.TopologyPorts.render(id, name).catch(err => {
+      const levelEl = document.getElementById('level-select');
+      const level = levelEl ? levelEl.value : 'port';
+      status.textContent = `开始渲染设备 ${id} 的${level === 'device' ? '设备级' : '端口级'}拓扑...`;
+      const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
+      renderer.render(id, name).catch(err => {
         console.error(err);
         status.textContent = '渲染失败：' + (err?.message || err);
       });
@@ -115,7 +145,10 @@
     const sel = document.getElementById('layout-select');
     if (!sel) return;
     sel.addEventListener('change', () => {
-      window.TopologyPorts.setLayout(sel.value);
+      const levelEl = document.getElementById('level-select');
+      const level = levelEl ? levelEl.value : 'port';
+      const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
+      if (renderer && renderer.setLayout) renderer.setLayout(sel.value);
     });
   }
   function bindFullscreen() {
@@ -124,26 +157,32 @@
     if (!btn || !container) return;
     btn.addEventListener('click', async () => {
       try {
+        const levelEl = document.getElementById('level-select');
+        const level = levelEl ? levelEl.value : 'port';
+        const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
         if (!document.fullscreenElement) {
           container.style.height = '100vh';
           await container.requestFullscreen();
-          if (window.TopologyPorts && window.TopologyPorts.resize) window.TopologyPorts.resize();
+          if (renderer && renderer.resize) renderer.resize();
         } else {
           await document.exitFullscreen();
           container.style.height = '85vh';
-          if (window.TopologyPorts && window.TopologyPorts.resize) window.TopologyPorts.resize();
+          if (renderer && renderer.resize) renderer.resize();
         }
       } catch (e) {
         console.warn('全屏切换失败', e);
       }
     });
     document.addEventListener('fullscreenchange', () => {
+      const levelEl = document.getElementById('level-select');
+      const level = levelEl ? levelEl.value : 'port';
+      const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
       if (document.fullscreenElement) {
         container.style.height = '100vh';
       } else {
         container.style.height = '85vh';
       }
-      if (window.TopologyPorts && window.TopologyPorts.resize) window.TopologyPorts.resize();
+      if (renderer && renderer.resize) renderer.resize();
     });
   }
   window.TopologyPage = {
@@ -156,9 +195,12 @@
         // 确保设备列表加载后再进行自动渲染，便于获取设备名称
         const autoId = resolveDeviceIdFromInputs();
         const name = getSelectedDeviceLabel();
+        const levelEl = document.getElementById('level-select');
+        const level = levelEl ? levelEl.value : 'port';
         if (autoId) {
-          status.textContent = `自动渲染设备 ${autoId} 的端口拓扑...`;
-          window.TopologyPorts.render(autoId, name).catch(err => {
+          status.textContent = `自动渲染设备 ${autoId} 的${level === 'device' ? '设备级' : '端口级'}拓扑...`;
+          const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
+          renderer.render(autoId, name).catch(err => {
             console.error(err);
             status.textContent = '自动渲染失败：' + (err?.message || err);
           });
@@ -179,32 +221,69 @@
         power_rating: d.power_rating,
         commission_date: d.commission_date,
         location: d.location,
+        station: d.station || d.location,
         lifecycle_status: d.lifecycle_status || d.status || undefined,
       };
     },
     updateDetails(nodeData) {
-      const box = document.getElementById('node-details');
-      if (!box) return;
-      if (!nodeData) { box.textContent = '未选中节点'; return; }
-      const lines = [];
-      if (nodeData.nodeType === 'device') {
-        const d = this.getDeviceBrief(nodeData.id);
-        lines.push(`设备: ${nodeData.label || (d?.name || '')}`);
-        if (d?.vendor) lines.push(`厂家: ${d.vendor}`);
-        if (d?.model) lines.push(`型号: ${d.model}`);
-        if (d?.power_rating) lines.push(`额定容量: ${d.power_rating}`);
-        if (d?.lifecycle_status) lines.push(`生命周期: ${d.lifecycle_status}`);
-        if (d?.commission_date) lines.push(`投产日期: ${d.commission_date}`);
-        if (d?.location) lines.push(`位置: ${d.location}`);
+      const panel = document.getElementById('node-details');
+      if (!panel) return;
+  
+      const isPort = String(nodeData.nodeType || nodeData.type || '').toLowerCase() === 'port';
+      const sideLabel = nodeData.side === 'left' ? 'A端' : (nodeData.side === 'right' ? 'B端' : '');
+  
+      if (isPort) {
+        const name = nodeData.port_name || nodeData.label || '';
+        const rated = nodeData.rated_current || nodeData.current || '';
+        const fuseNo = nodeData.fuse_number || '';
+        const fuseSpec = nodeData.fuse_spec || '';
+        const breakerNo = nodeData.breaker_number || '';
+        const breakerSpec = nodeData.breaker_spec || '';
+        const connDevice = nodeData.connected_device || '';
+        const connPort = nodeData.connected_port || '';
+        const cableModel = nodeData.cable_model || '';
+  
+        const hasFuse = !!(fuseNo || fuseSpec);
+        const hasBreaker = !!(breakerNo || breakerSpec);
+  
+        const lines = [];
+        if (sideLabel) lines.push(`端别: ${sideLabel}`);
+        lines.push(`端口名称: ${name}`);
+        if (hasFuse) {
+          lines.push('端口类型: 熔丝');
+          if (fuseNo) lines.push(`熔丝编号: ${fuseNo}`);
+          if (fuseSpec) lines.push(`熔丝规格: ${fuseSpec}`);
+        } else if (hasBreaker) {
+          lines.push('端口类型: 空开');
+          if (breakerNo) lines.push(`空开编号: ${breakerNo}`);
+          if (breakerSpec) lines.push(`空开规格: ${breakerSpec}`);
+        }
+        if (rated) lines.push(`端口额定电流: ${rated}`);
+        if (connDevice || connPort) lines.push(`连接: ${[connDevice, connPort].filter(Boolean).join(' ')}`);
+        if (cableModel) lines.push(`电缆型号: ${cableModel}`);
+  
+        panel.textContent = lines.join('\n') || '未选中节点';
       } else {
-        lines.push(`端口: ${nodeData.port_name || nodeData.label || nodeData.id}`);
-        if (nodeData.fuse_number) lines.push(`熔丝/空开编号: ${nodeData.fuse_number}`);
-        if (nodeData.fuse_spec) lines.push(`熔丝/空开型号: ${nodeData.fuse_spec}`);
-        if (nodeData.breaker_number) lines.push(`空开编号: ${nodeData.breaker_number}`);
-        if (nodeData.breaker_spec) lines.push(`空开型号: ${nodeData.breaker_spec}`);
-        if (nodeData.rated_current) lines.push(`额定电流: ${nodeData.rated_current}`);
+        const name = nodeData.label || '';
+        const vendor = nodeData.vendor || '';
+        const model = nodeData.model || '';
+        const rating = nodeData.power_rating || nodeData.rated_capacity || '';
+        const lifecycle = nodeData.lifecycle_status || '';
+        const commission = nodeData.commission_date || '';
+        const location = nodeData.location || '';
+  
+        const lines = [
+          `设备: ${name}`,
+          vendor && `厂家: ${vendor}`,
+          model && `型号: ${model}`,
+          rating && `额定容量: ${rating}`,
+          lifecycle && `生命周期: ${lifecycle}`,
+          commission && `投产日期: ${commission}`,
+          location && `位置: ${location}`,
+        ].filter(Boolean).join('\n');
+  
+        panel.textContent = lines || '未选中节点';
       }
-      box.innerHTML = lines.map(escapeHtml).join('<br>');
     }
   };
   document.addEventListener('DOMContentLoaded', () => {

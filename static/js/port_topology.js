@@ -523,9 +523,12 @@ class PortTopologyManager {
      */
     onNodeHover(nodeId) {
         const node = this.nodes.get(nodeId);
-        if (node && node.portData) {
-            // 显示详细信息提示
-            this.showTooltip(node.portData);
+        if (!node) return;
+        // 优先使用 portData，其次回退到 nodeData（兼容后端返回字段）
+        const pd = node.portData || (node.nodeData && (node.nodeData.portData || node.nodeData));
+        if (pd) {
+            // 显示详细信息提示（兼容不同数据来源）
+            this.showTooltip(pd);
         }
     }
 
@@ -671,6 +674,15 @@ class PortTopologyManager {
         // 移除已存在的提示框
         this.hideTooltip();
         
+        // 字段别名映射，兼容不同后端返回的名称
+        const deviceName = portData.deviceName || portData.device_name || portData.deviceLabel || portData.device_label || portData.device || '未知';
+        const portName = portData.portName || portData.port_name || portData.name || portData.label || '未知';
+        const portType = portData.portType || portData.port_type || portData.type || portData.nodeType || '未知';
+        const voltage = portData.voltage || portData.voltage_level || portData.voltage_rating;
+        const current = portData.current || portData.rated_current || portData.amperage;
+        const status = portData.status || portData.lifecycle_status;
+        const remark = portData.remark || portData.notes || portData.comment;
+        
         // 创建提示框元素
         const tooltip = document.createElement('div');
         tooltip.id = 'port-tooltip';
@@ -680,13 +692,13 @@ class PortTopologyManager {
         let tooltipContent = `
             <div class="tooltip-header">端口信息</div>
             <div class="tooltip-content">
-                <div><strong>设备:</strong> ${portData.deviceName || '未知'}</div>
-                <div><strong>端口:</strong> ${portData.portName || '未知'}</div>
-                <div><strong>端口类型:</strong> ${portData.portType || '未知'}</div>
-                ${portData.voltage ? `<div><strong>电压等级:</strong> ${portData.voltage}</div>` : ''}
-                ${portData.current ? `<div><strong>额定电流:</strong> ${portData.current}</div>` : ''}
-                ${portData.status ? `<div><strong>状态:</strong> ${portData.status}</div>` : ''}
-                ${portData.remark ? `<div><strong>备注:</strong> ${portData.remark}</div>` : ''}
+                <div><strong>设备:</strong> ${deviceName}</div>
+                <div><strong>端口:</strong> ${portName}</div>
+                <div><strong>端口类型:</strong> ${portType}</div>
+                ${voltage ? `<div><strong>电压等级:</strong> ${voltage}</div>` : ''}
+                ${current ? `<div><strong>额定电流:</strong> ${current}</div>` : ''}
+                ${status ? `<div><strong>状态:</strong> ${status}</div>` : ''}
+                ${remark ? `<div><strong>备注:</strong> ${remark}</div>` : ''}
             </div>
         `;
         
@@ -729,6 +741,18 @@ class PortTopologyManager {
     showNodeDetails(nodeData) {
         console.log('显示节点详情:', nodeData);
         
+        // 字段别名映射与回退，兼容设备与端口节点
+        const nodeId = nodeData.id || nodeData.node_id;
+        const name = nodeData.label || nodeData.name || nodeData.port_name || nodeData.device_name;
+        const type = nodeData.nodeType || nodeData.type || nodeData.rawNodeType || '未知';
+        const deviceName = nodeData.device_name || nodeData.deviceName || nodeData.device_label || nodeData.deviceLabel;
+        const portName = nodeData.port_name || nodeData.portName || (nodeData.port && nodeData.port.name) || (nodeData.name && (String(type).toLowerCase().includes('port') ? nodeData.name : undefined));
+        const voltage = nodeData.voltage || nodeData.voltage_level || nodeData.voltage_rating;
+        const current = nodeData.current || nodeData.rated_current || nodeData.amperage;
+        const power = nodeData.power || nodeData.rated_capacity || nodeData.power_rating;
+        const status = nodeData.status || nodeData.lifecycle_status;
+        const remark = nodeData.remark || nodeData.notes || nodeData.comment;
+        
         // 创建详情弹窗
         const modal = document.createElement('div');
         modal.className = 'modal fade';
@@ -747,21 +771,21 @@ class PortTopologyManager {
                             <div class="col-md-6">
                                 <h6>基本信息</h6>
                                 <table class="table table-sm">
-                                    <tr><td><strong>节点ID:</strong></td><td>${nodeData.id || '未知'}</td></tr>
-                                    <tr><td><strong>节点名称:</strong></td><td>${nodeData.label || '未知'}</td></tr>
-                                    <tr><td><strong>节点类型:</strong></td><td>${nodeData.type || '未知'}</td></tr>
-                                    ${nodeData.device_name ? `<tr><td><strong>设备名称:</strong></td><td>${nodeData.device_name}</td></tr>` : ''}
-                                    ${nodeData.port_name ? `<tr><td><strong>端口名称:</strong></td><td>${nodeData.port_name}</td></tr>` : ''}
+                                    <tr><td><strong>节点ID:</strong></td><td>${nodeId || '未知'}</td></tr>
+                                    <tr><td><strong>节点名称:</strong></td><td>${name || '未知'}</td></tr>
+                                    <tr><td><strong>节点类型:</strong></td><td>${type || '未知'}</td></tr>
+                                    ${deviceName ? `<tr><td><strong>设备名称:</strong></td><td>${deviceName}</td></tr>` : ''}
+                                    ${portName ? `<tr><td><strong>端口名称:</strong></td><td>${portName}</td></tr>` : ''}
                                 </table>
                             </div>
                             <div class="col-md-6">
                                 <h6>技术参数</h6>
                                 <table class="table table-sm">
-                                    ${nodeData.voltage ? `<tr><td><strong>电压等级:</strong></td><td>${nodeData.voltage}</td></tr>` : ''}
-                                    ${nodeData.current ? `<tr><td><strong>额定电流:</strong></td><td>${nodeData.current}</td></tr>` : ''}
-                                    ${nodeData.power ? `<tr><td><strong>功率:</strong></td><td>${nodeData.power}</td></tr>` : ''}
-                                    ${nodeData.status ? `<tr><td><strong>状态:</strong></td><td>${nodeData.status}</td></tr>` : ''}
-                                    ${nodeData.remark ? `<tr><td><strong>备注:</strong></td><td>${nodeData.remark}</td></tr>` : ''}
+                                    ${voltage ? `<tr><td><strong>电压等级:</strong></td><td>${voltage}</td></tr>` : ''}
+                                    ${current ? `<tr><td><strong>额定电流:</strong></td><td>${current}</td></tr>` : ''}
+                                    ${power ? `<tr><td><strong>功率:</strong></td><td>${power}</td></tr>` : ''}
+                                    ${status ? `<tr><td><strong>状态:</strong></td><td>${status}</td></tr>` : ''}
+                                    ${remark ? `<tr><td><strong>备注:</strong></td><td>${remark}</td></tr>` : ''}
                                 </table>
                             </div>
                         </div>

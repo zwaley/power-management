@@ -521,10 +521,9 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
         if not device:
             raise HTTPException(status_code=404, detail="设备不存在")
         
-        # 获取设备的所有连接
+        # 获取设备的所有连接（严格限定为选中设备作为A端/源设备）
         connections = db.query(Connection).filter(
-            or_(Connection.source_device_id == device_id, 
-                Connection.target_device_id == device_id)
+            Connection.source_device_id == device_id
         ).all()
         
         nodes = []
@@ -549,7 +548,15 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
             "size": 30,
             "color": {"background": "#3b82f6", "border": "#1e40af"},
             "shape": "box",
-            "font": {"size": 14, "color": "#ffffff"}
+            "font": {"size": 14, "color": "#ffffff"},
+            # 设备详情字段用于前端详情面板
+            "device_name": device.name,
+            "vendor": device.vendor,
+            "model": device.model,
+            "power_rating": device.power_rating,
+            "commission_date": device.commission_date,
+            "location": device.location,
+            "station": device.station
         }
         nodes.append(center_device_node)
         
@@ -614,19 +621,42 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
             else:
                 port_y = 0
             
-            # 创建端口节点
+            # 本端端口详细字段（用于详情面板）
+            if conn.source_device_id == device_id:
+                lfuse_num = conn.source_fuse_number
+                lfuse_spec = conn.source_fuse_spec
+                lbreaker_num = conn.source_breaker_number
+                lbreaker_spec = conn.source_breaker_spec
+                lrated = conn.a_rated_current or conn.rated_current
+            else:
+                lfuse_num = conn.target_fuse_number
+                lfuse_spec = conn.target_fuse_spec
+                lbreaker_num = conn.target_breaker_number
+                lbreaker_spec = conn.target_breaker_spec
+                lrated = conn.b_rated_current or conn.rated_current
+
+            # 创建端口节点（补充详情字段）
             port_node_id = f"port_{device_id}_{local_port}_{conn.id}"
             port_node = {
                 "id": port_node_id,
-                "label": local_port,  # 严格使用原始port_name
+                "label": local_port,
                 "type": "port",
-                "nodeType": "port",  # 添加nodeType字段供前端识别
+                "nodeType": "port",
                 "x": port_x,
                 "y": port_y,
                 "size": 15,
                 "color": {"background": "#10b981", "border": "#059669"},
                 "shape": "circle",
-                "font": {"size": 12}
+                "font": {"size": 12},
+                "port_name": local_port,
+                "fuse_number": lfuse_num,
+                "fuse_spec": lfuse_spec,
+                "breaker_number": lbreaker_num,
+                "breaker_spec": lbreaker_spec,
+                "rated_current": lrated,
+                "connected_device": (remote_device.name if remote_device else None),
+                "connected_port": remote_port,
+                "cable_model": conn.cable_model
             }
             nodes.append(port_node)
             
@@ -657,6 +687,20 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
                 # 对端组合标签：设备名称 + 熔丝/空开/端口编号（按用户标准）
                 remote_label = f"{remote_name}\n{remote_port}" if remote_name else f"{remote_port}"
 
+                # 远端端口详细字段（用于详情面板）
+                if conn.source_device_id == device_id:
+                    rfuse_num = conn.target_fuse_number
+                    rfuse_spec = conn.target_fuse_spec
+                    rbreaker_num = conn.target_breaker_number
+                    rbreaker_spec = conn.target_breaker_spec
+                    rrated = conn.b_rated_current or conn.rated_current
+                else:
+                    rfuse_num = conn.source_fuse_number
+                    rfuse_spec = conn.source_fuse_spec
+                    rbreaker_num = conn.source_breaker_number
+                    rbreaker_spec = conn.source_breaker_spec
+                    rrated = conn.a_rated_current or conn.rated_current
+
                 # 使用端口样式显示组合节点，确保前端按端口类型着色与布局
                 remote_node = {
                     "id": remote_node_id,
@@ -670,7 +714,17 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
                     "shape": "dot",
                     "font": {"size": 10},
                     "device_name": remote_name,
-                    "port_name": remote_port
+                    "port_name": remote_port,
+                    # 详情字段：熔丝/空开/额定电流
+                    "fuse_number": rfuse_num,
+                    "fuse_spec": rfuse_spec,
+                    "breaker_number": rbreaker_num,
+                    "breaker_spec": rbreaker_spec,
+                    "rated_current": rrated,
+                    # 连接信息（对端视角显示与中心设备的连接）
+                    "connected_device": device.name,
+                    "connected_port": local_port,
+                    "cable_model": conn.cable_model
                 }
                 nodes.append(remote_node)
                 
@@ -739,19 +793,42 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
             else:
                 port_y = 0
             
-            # 创建端口节点
+            # 本端端口详细字段（用于详情面板）
+            if conn.source_device_id == device_id:
+                rfuse_num = conn.source_fuse_number
+                rfuse_spec = conn.source_fuse_spec
+                rbreaker_num = conn.source_breaker_number
+                rbreaker_spec = conn.source_breaker_spec
+                rrated = conn.a_rated_current or conn.rated_current
+            else:
+                rfuse_num = conn.target_fuse_number
+                rfuse_spec = conn.target_fuse_spec
+                rbreaker_num = conn.target_breaker_number
+                rbreaker_spec = conn.target_breaker_spec
+                rrated = conn.b_rated_current or conn.rated_current
+
+            # 创建端口节点（补充详情字段）
             port_node_id = f"port_{device_id}_{local_port}_{conn.id}"
             port_node = {
                 "id": port_node_id,
                 "label": local_port,
                 "type": "port",
-                "nodeType": "port",  # 添加nodeType字段供前端识别
+                "nodeType": "port",
                 "x": port_x,
                 "y": port_y,
                 "size": 15,
                 "color": {"background": "#10b981", "border": "#059669"},
                 "shape": "circle",
-                "font": {"size": 12}
+                "font": {"size": 12},
+                "port_name": local_port,
+                "fuse_number": rfuse_num,
+                "fuse_spec": rfuse_spec,
+                "breaker_number": rbreaker_num,
+                "breaker_spec": rbreaker_spec,
+                "rated_current": rrated,
+                "connected_device": (remote_device.name if remote_device else None),
+                "connected_port": remote_port,
+                "cable_model": conn.cable_model
             }
             nodes.append(port_node)
             
@@ -779,6 +856,20 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
 
                 remote_label = f"{remote_name}\n{remote_port}" if remote_name else f"{remote_port}"
 
+                # 远端端口详细字段（用于详情面板）
+                if conn.source_device_id == device_id:
+                    rfuse_num = conn.target_fuse_number
+                    rfuse_spec = conn.target_fuse_spec
+                    rbreaker_num = conn.target_breaker_number
+                    rbreaker_spec = conn.target_breaker_spec
+                    rrated = conn.b_rated_current or conn.rated_current
+                else:
+                    rfuse_num = conn.source_fuse_number
+                    rfuse_spec = conn.source_fuse_spec
+                    rbreaker_num = conn.source_breaker_number
+                    rbreaker_spec = conn.source_breaker_spec
+                    rrated = conn.a_rated_current or conn.rated_current
+
                 remote_node = {
                     "id": remote_node_id,
                     "label": remote_label,
@@ -791,7 +882,17 @@ async def get_port_topology_data(device_id: int, mode: str = "detailed", db: Ses
                     "shape": "dot",
                     "font": {"size": 10},
                     "device_name": remote_name,
-                    "port_name": remote_port
+                    "port_name": remote_port,
+                    # 详情字段：熔丝/空开/额定电流
+                    "fuse_number": rfuse_num,
+                    "fuse_spec": rfuse_spec,
+                    "breaker_number": rbreaker_num,
+                    "breaker_spec": rbreaker_spec,
+                    "rated_current": rrated,
+                    # 连接信息（对端视角显示与中心设备的连接）
+                    "connected_device": device.name,
+                    "connected_port": local_port,
+                    "cable_model": conn.cable_model
                 }
                 nodes.append(remote_node)
                 
@@ -3578,6 +3679,50 @@ async def get_devices_api(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"获取设备列表失败: {str(e)}")
 
+
+@app.get("/api/devices/search")
+async def search_devices(query: Optional[str] = Query(None, min_length=1, description="设备名称/资产编号/ID"), limit: int = Query(10, ge=1, le=50, description="返回数量"), db: Session = Depends(get_db)):
+    """
+    设备搜索API：支持按名称、资产编号模糊查询，或按ID精确匹配
+    """
+    try:
+        if not query or not str(query).strip():
+            return JSONResponse(content={"success": True, "data": []})
+        q = str(query).strip()
+        from sqlalchemy import or_
+
+        conds = [
+            Device.name.ilike(f"%{q}%"),
+            Device.asset_id.ilike(f"%{q}%"),
+        ]
+        # 如果是数字，加入ID精确匹配
+        try:
+            id_val = int(q)
+            conds.append(Device.id == id_val)
+        except Exception:
+            pass
+
+        devices = db.query(Device).filter(or_(*conds)).limit(limit).all()
+        result = []
+        for d in devices:
+            result.append({
+                "id": d.id,
+                "asset_id": d.asset_id,
+                "name": d.name,
+                "station": d.station,
+                "model": d.model,
+                "device_type": d.device_type,
+                "location": d.location,
+                "power_rating": d.power_rating,
+                "vendor": d.vendor,
+                "commission_date": d.commission_date.isoformat() if d.commission_date and hasattr(d.commission_date, 'isoformat') else d.commission_date,
+                "remark": d.remark
+            })
+        return JSONResponse(content={"success": True, "data": result})
+    except Exception as e:
+        print(f"设备搜索失败: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"设备搜索失败: {str(e)}")
 
 @app.get("/api/topology/filter-options")
 async def get_filter_options(db: Session = Depends(get_db)):
