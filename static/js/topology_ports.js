@@ -124,13 +124,15 @@
 
     // 合并后端可能返回的其他节点与边，并避免中心设备重复
     const centerIdStr = String(centerId);
+    const duplicateCenterIds = new Set();
     (raw.nodes || []).forEach(n => {
       const nId = String(n.id);
       const nType = String(n.nodeType || n.type || '').toLowerCase();
       const isCenterDuplicate = (nId === centerIdStr)
         || (nId === 'center' || nId === 'center_device' || nId === 'selected_device')
-        || (nType === 'device' && (String(n.label || '') === String(centerLabel || '')));
-      if (isCenterDuplicate) return; // 跳过重复的中心节点（后面还有一次孤点清理）
+        || (nType === 'device' && (String(n.label || '') === String(centerLabel || '')))
+        || (String(n.label || '') === String(centerLabel || ''));
+      if (isCenterDuplicate) { duplicateCenterIds.add(nId); return; }
 
       if (!nodes.some(x => String(x.id) === nId)) {
         const dTitle = formatTooltip([
@@ -146,6 +148,16 @@
       }
     });
     (raw.edges || []).forEach(e => edges.push(e));
+
+    // 将所有指向重复中心或别名中心的边统一重写到唯一中心ID
+    const aliasCenterIds = new Set([centerIdStr, 'center', 'center_device', 'selected_device']);
+    duplicateCenterIds.forEach(id => aliasCenterIds.add(id));
+    edges.forEach(e => {
+      const f = String(e.from);
+      const t = String(e.to);
+      if (aliasCenterIds.has(f)) e.from = centerIdStr;
+      if (aliasCenterIds.has(t)) e.to = centerIdStr;
+    });
 
     // 计算各节点度数，用于孤点清理（主要清理重复中心的“孤零零”标签）
     const degree = {};
