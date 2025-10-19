@@ -2812,7 +2812,7 @@ async def delete_device(device_id: int, request: Request, db: Session = Depends(
 
 @app.post("/devices")
 async def create_device(
-    asset_id: str = Form(...),
+    asset_id: str = Form(None),
     name: str = Form(...),
     station: str = Form(...),
     model: str = Form(None),
@@ -2829,18 +2829,34 @@ async def create_device(
     if not verify_admin_password(password):
         error_message = "密码错误，无权限执行此操作。"
         return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
-    
-    # 增加资产编号唯一性校验
-    existing_device = db.query(Device).filter(Device.asset_id == asset_id).first()
-    if existing_device:
-        # 如果存在，则重定向回主页并显示错误信息
-        error_message = f"创建失败：资产编号 '{asset_id}' 已存在。"
-        return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
+
+    # 处理资产编号：允许为空并自动生成唯一编号
+    asset_id = (asset_id or '').strip()
+    if not asset_id:
+        from datetime import datetime
+        import random
+        def _generate_candidate():
+            ts = datetime.now().strftime('%Y%m%d%H%M%S')
+            rnd = f"{random.randint(100,999)}"
+            return f"A{ts}{rnd}"
+        candidate = _generate_candidate()
+        # 保证唯一
+        while db.query(Device).filter(Device.asset_id == candidate).first():
+            candidate = _generate_candidate()
+        asset_id = candidate
+    else:
+        # 如果用户填写了资产编号，仍然进行唯一性校验
+        existing_device = db.query(Device).filter(Device.asset_id == asset_id).first()
+        if existing_device:
+            error_message = f"创建失败：资产编号 '{asset_id}' 已存在。"
+            return RedirectResponse(url=f"/?error={quote(error_message)}", status_code=303)
 
     new_device = Device(
         asset_id=asset_id,
         name=name,
         station=station,
+        model=model,
+        device_type=device_type,
         location=location,
         power_rating=power_rating,
         vendor=vendor,

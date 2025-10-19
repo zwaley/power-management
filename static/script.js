@@ -531,116 +531,58 @@ function clearNameFilter() {
 
 // ==================== 导出功能 ====================
 
-// 显示导出对话框
-function showExportDialog() {
-    const dialog = document.getElementById('exportDialog');
-    if (dialog) {
-        dialog.style.display = 'block';
-        // 清空密码输入框
-        const passwordInput = document.getElementById('exportPassword');
-        if (passwordInput) {
-            passwordInput.value = '';
-            passwordInput.focus();
-        }
-    }
-}
+// 设备管理：已改为直接导出当前筛选结果（CSV）。
+// 旧的“导出确认”对话框及其逻辑已移除。
+// 请使用 exportDevices() 直接触发下载。
 
-// 关闭导出对话框
-function closeExportDialog() {
-    const dialog = document.getElementById('exportDialog');
-    if (dialog) {
-        dialog.style.display = 'none';
-    }
-}
-
-// 确认导出
-function confirmExport() {
-    const password = document.getElementById('exportPassword').value;
-    const exportRange = document.querySelector('input[name="exportRange"]:checked').value;
-    
-    // 验证密码是否输入
-    if (!password.trim()) {
-        alert('请输入管理员密码');
+// 直接导出设备列表当前筛选结果（CSV）
+function exportDevices() {
+    const table = document.getElementById('deviceTable');
+    if (!table) {
+        alert('未找到设备表格');
         return;
     }
-    
-    // 准备导出数据
-    const exportData = {
-        password: password,
-        export_range: exportRange
-    };
-    
-    // 如果选择导出筛选结果，需要获取当前筛选条件
-    if (exportRange === 'filtered') {
-        exportData.filters = {
-            station: document.getElementById('stationFilter').value,
-            name: document.getElementById('nameFilter').value,
-            device_type: document.getElementById('deviceTypeFilter').value,
-            vendor: document.getElementById('vendorFilter').value,
-            lifecycle: document.getElementById('lifecycleFilter').value
-        };
+
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    const visibleRows = rows.filter(row => row.style.display !== 'none');
+
+    if (visibleRows.length === 0) {
+        alert('当前筛选结果为空，没有可导出的数据');
+        return;
     }
-    
-    // 发送导出请求
-    fetch('/api/export', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(exportData)
-    })
-    .then(response => {
-        if (response.ok) {
-            // 获取文件名
-            const contentDisposition = response.headers.get('Content-Disposition');
-            let filename = 'devices_export.xlsx';
-            if (contentDisposition) {
-                const filenameMatch = contentDisposition.match(/filename="(.+)"/); 
-                if (filenameMatch) {
-                    filename = filenameMatch[1];
-                }
-            }
-            
-            // 下载文件
-            return response.blob().then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-                
-                // 关闭对话框
-                closeExportDialog();
-                
-                // 显示成功消息
-                alert('导出成功！文件已开始下载。');
-            });
-        } else {
-            return response.json().then(data => {
-                throw new Error(data.detail || '导出失败');
-            });
+
+    const headers = ['ID','资产编号','设备名称','局站','设备类型','设备型号','所在位置','额定容量','设备生产厂家','投产日期','生命周期状态','备注'];
+    const csvRows = [];
+    csvRows.push(headers.join(','));
+
+    visibleRows.forEach(row => {
+        const cells = Array.from(row.querySelectorAll('td'));
+        const values = [];
+        // 取前12列，跳过最后的“操作”列
+        for (let i = 0; i <= 11; i++) {
+            let text = cells[i] ? (cells[i].innerText || cells[i].textContent || '') : '';
+            text = text.replace(/\r?\n|\r/g, ' ').trim();
+            text = text.replace(/"/g, '""');
+            values.push(`"${text}"`);
         }
-    })
-    .catch(error => {
-        console.error('导出错误:', error);
-        alert('导出失败: ' + error.message);
+        csvRows.push(values.join(','));
     });
+
+    const csvContent = csvRows.join('\r\n');
+    const bom = '\ufeff'; // 让Excel正确识别UTF-8中文
+    const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8' });
+
+    const now = new Date();
+    const pad = n => n.toString().padStart(2, '0');
+    const filename = `devices_export_${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.csv`;
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    URL.revokeObjectURL(link.href);
+    document.body.removeChild(link);
+
+    alert('导出成功！文件已开始下载。');
 }
-
-// 点击对话框外部关闭对话框
-document.addEventListener('click', function(event) {
-    const dialog = document.getElementById('exportDialog');
-    if (dialog && event.target === dialog) {
-        closeExportDialog();
-    }
-});
-
-// 按ESC键关闭对话框
-document.addEventListener('keydown', function(event) {
-    if (event.key === 'Escape') {
-        closeExportDialog();
-    }
-});
