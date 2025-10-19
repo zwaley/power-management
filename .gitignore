@@ -54,4 +54,18 @@ analyze_*.py
 migrate_connection_table.py
 read_excel.py
 init_and_check_db.py
-add_default_lifecycle_rule.py
+add_default_lifecycle_rule.py### cache & temp ignores (auto-added)
+*.pyc
+*.pyo
+.pytest_cache/
+~$*
+*.swo
+# quarantine and cleanup reports
+quarantine_*/
+cleanup_report_*.csv
+cleanup_dirs_*.csv
+# temp and backup files
+temp/
+*.backup
+static/**/*.bak*
+templates/**/*.bak
