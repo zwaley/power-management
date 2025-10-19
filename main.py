@@ -55,6 +55,7 @@ from device_types import STANDARD_DEVICE_TYPES, validate_device_type, get_device
 
 # Import error tracking system
 from topology_error_tracker import topology_error_tracker, ErrorCategory, ErrorLevel
+from analytics_service import AnalyticsService
 
 
 # --- Port Statistics Service Class ---
@@ -4041,23 +4042,47 @@ async def analytics_page(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/export")
-async def export_devices(
-    password: str = Form(...),
-    export_range: str = Form("all"),
-    station_filter: str = Form(""),
-    name_filter: str = Form(""),
-    device_type_filter: str = Form(""),
-    vendor_filter: str = Form(""),
-    lifecycle_filter: str = Form(""),
-    db: Session = Depends(get_db)
-):
+async def export_devices(request: Request, db: Session = Depends(get_db)):
     """
     导出设备数据为Excel文件
     支持全量导出和筛选导出，需要管理员密码验证
+    同时兼容 application/json 和 form-urlencoded 提交
     """
     try:
+        # 解析请求体，兼容 JSON 与表单
+        content_type = request.headers.get("content-type", "").lower()
+        password = None
+        export_range = "all"
+        station_filter = ""
+        name_filter = ""
+        device_type_filter = ""
+        vendor_filter = ""
+        lifecycle_filter = ""
+
+        if "application/json" in content_type:
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = {}
+            password = payload.get("password")
+            export_range = payload.get("export_range", "all")
+            station_filter = payload.get("station") or payload.get("station_filter") or ""
+            name_filter = payload.get("name") or payload.get("name_filter") or ""
+            device_type_filter = payload.get("device_type") or payload.get("device_type_filter") or ""
+            vendor_filter = payload.get("vendor") or payload.get("vendor_filter") or ""
+            lifecycle_filter = payload.get("lifecycle") or payload.get("lifecycle_filter") or ""
+        else:
+            form = await request.form()
+            password = form.get("password")
+            export_range = form.get("export_range") or "all"
+            station_filter = form.get("station_filter") or form.get("station") or ""
+            name_filter = form.get("name_filter") or form.get("name") or ""
+            device_type_filter = form.get("device_type_filter") or form.get("device_type") or ""
+            vendor_filter = form.get("vendor_filter") or form.get("vendor") or ""
+            lifecycle_filter = form.get("lifecycle_filter") or form.get("lifecycle") or ""
+
         # 验证管理员密码
-        if not verify_admin_password(password):
+        if not password or not verify_admin_password(password):
             raise HTTPException(status_code=401, detail="密码错误，无权限导出数据")
         
         # 根据导出范围查询设备数据
@@ -4112,6 +4137,24 @@ async def export_devices(
             cell.alignment = header_alignment
             cell.border = border
         
+        # 安全格式化日期，避免字符串值触发 strftime 错误
+        def safe_format_date(value):
+            if not value:
+                return ""
+            try:
+                if isinstance(value, (date, datetime)):
+                    return value.strftime("%Y-%m-%d")
+                if isinstance(value, str):
+                    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y-%m-%d %H:%M:%S"):
+                        try:
+                            return datetime.strptime(value, fmt).strftime("%Y-%m-%d")
+                        except Exception:
+                            continue
+                    return value
+                return str(value)
+            except Exception:
+                return str(value) if value is not None else ""
+        
         # 写入设备数据
         for row, device in enumerate(devices, 2):
             data = [
@@ -4124,7 +4167,7 @@ async def export_devices(
                 device.location,
                 device.power_rating,
                 device.vendor,
-                device.commission_date.strftime("%Y-%m-%d") if device.commission_date else "",
+                safe_format_date(device.commission_date),
                 device.remark
             ]
             
@@ -4620,13 +4663,10 @@ async def get_connections(
                     Connection.source_breaker_number.isnot(None)
                 )
             )
-        # 按设备名称模糊查询（匹配源设备或目标设备）
+        # 按设备名称模糊查询（仅匹配A端设备）
         if device_name:
             query = query.filter(
-                or_(
-                    Device.name.ilike(f"%{device_name}%"),  # 匹配源设备名称
-                    target_device.name.ilike(f"%{device_name}%")  # 匹配目标设备名称
-                )
+                Device.name.ilike(f"%{device_name}%")  # 仅匹配源设备（A端）名称
             )
         
         # 计算总数

@@ -243,13 +243,18 @@ class PortTopologyService:
             if (upstream_downstream == "下游") or (upstream_downstream == "" and direction == "incoming"):
                 from_node, to_node = remote_combined_id, local_port_id
 
-            # 边对象：必须有电缆类型（已在 should_create_remote 过滤），标签使用电缆型号（可为空则不显示）
+            # 根据 upstream_downstream 值动态设置箭头
+            show_arrows = upstream_downstream != "平级"
+
+            # 边对象
             connection_edge = {
                 "id": f"conn_{conn.id}", "from": from_node, "to": to_node, "label": cable_label,
-                "color": edge_color, "width": 3, "arrows": {"to": {"enabled": True}},
+                "color": edge_color, "width": 3, "arrows": {"to": {"enabled": show_arrows}},
                 "font": {"size": 10, "color": "#374151"},
                 "connection_id": conn.id, "connection_type": conn.connection_type,
-                "cable_type": conn.cable_type, "cable_model": conn.cable_model
+                "cable_type": conn.cable_type, "cable_model": conn.cable_model,
+                "remark": conn.remark,
+                "upstream_downstream": upstream_downstream # 传递给前端，供调试
             }
             edges.append(connection_edge)
         

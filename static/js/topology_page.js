@@ -33,7 +33,7 @@
     return params.get(name);
   }
   function resolveDeviceIdFromInputs() {
-    const q = getQueryParam('device_id');
+    const q = getQueryParam('device_id') || getQueryParam('id');
     if (q && !isNaN(Number(q))) return Number(q);
     const sel = document.getElementById('device-select');
     if (sel && sel.value) return Number(sel.value);
@@ -54,7 +54,7 @@
     async function performSearch(q) {
       try {
         const params = new URLSearchParams();
-        if (q) params.set('q', q);
+        if (q) params.set('query', q);
         params.set('limit', '30');
         const resp = await fetch(`/api/devices/search?${params.toString()}`);
         const json = await resp.json();
@@ -87,6 +87,33 @@
       clearTimeout(timer);
       if (!q) { listEl.innerHTML = ''; return; }
       timer = setTimeout(() => performSearch(q), 250);
+    });
+    // 支持按回车直接渲染首条匹配
+    input.addEventListener('keydown', async (ev) => {
+      if (ev.key !== 'Enter') return;
+      const q = input.value.trim();
+      if (!q) return;
+      try {
+        const params = new URLSearchParams({ query: q, limit: '1' });
+        const resp = await fetch(`/api/devices/search?${params.toString()}`);
+        const json = await resp.json();
+        const first = (json?.data || [])[0];
+        if (!first) { status.textContent = '未找到匹配设备'; return; }
+        const id = Number(first.id);
+        const sel = document.getElementById('device-select');
+        if (sel) sel.value = String(id);
+        const name = first.name || getSelectedDeviceLabel();
+        const levelEl = document.getElementById('level-select');
+        const level = levelEl ? levelEl.value : 'port';
+        status.textContent = `选择设备 #${id}`;
+        if (level === 'device') {
+          window.TopologyDevice.render(id, name).catch(err => console.error(err));
+        } else {
+          window.TopologyPorts.render(id, name).catch(err => console.error(err));
+        }
+      } catch (e) {
+        status.textContent = '搜索失败：' + (e?.message || e);
+      }
     });
   }
   function getSelectedDeviceLabel() {
@@ -122,14 +149,29 @@
     const status = document.getElementById('status-area');
     const btn = document.getElementById('render-btn');
     if (!btn) return;
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const sel = document.getElementById('device-select');
       let id = sel && sel.value ? Number(sel.value) : undefined;
-      if (!id) {
-        const input = document.getElementById('device-search-input');
-        if (input && input.value && !isNaN(Number(input.value))) id = Number(input.value);
+      const input = document.getElementById('device-search-input');
+      const q = (input && input.value ? input.value.trim() : '') || '';
+      if (!id && q) {
+        if (!isNaN(Number(q))) {
+          id = Number(q);
+        } else {
+          try {
+            const params = new URLSearchParams({ query: q, limit: '1' });
+            const resp = await fetch(`/api/devices/search?${params.toString()}`);
+            const json = await resp.json();
+            id = (json?.data && json.data[0] && Number(json.data[0].id)) || undefined;
+          } catch (e) {
+            console.warn('模糊搜索解析ID失败', e);
+          }
+        }
       }
-      if (!id) id = resolveDeviceIdFromInputs();
+      if (!id) {
+        status.textContent = '请先选择设备或输入可匹配的设备名称/ID';
+        return;
+      }
       const name = getSelectedDeviceLabel();
       const levelEl = document.getElementById('level-select');
       const level = levelEl ? levelEl.value : 'port';

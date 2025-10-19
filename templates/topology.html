@@ -7,9 +7,10 @@
   <link href="/static/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <link href="/static/css/topology.css" rel="stylesheet">
+  <link href="/static/css/nav.css" rel="stylesheet">
 </head>
 <body class="topology-page">
-  <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+  <nav class="navbar navbar-expand-lg navbar-clean">
     <div class="container-fluid">
       <a class="navbar-brand" href="/">
         <i class="fas fa-bolt"></i> 安吉电信动力设备管理系统
@@ -81,5 +82,10 @@
   <script src="/static/js/topology_page.js"></script>
   <script src="/static/js/topology_device.js"></script>
   <script src="/static/js/topology_ports.js"></script>
+  <script>
+    if (window.TopologyPage && typeof window.TopologyPage.init === 'function') {
+      window.TopologyPage.init();
+    }
+  </script>
 </body>
 </html>

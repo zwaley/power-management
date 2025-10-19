@@ -6,6 +6,7 @@
     <title>连接管理 - 安吉电信动力设备管理系统</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/nav.css" rel="stylesheet">
     <style>
         .connection-type-ac {
             background-color: #e3f2fd;
@@ -226,7 +227,7 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg navbar-clean">
         <div class="container-fluid">
             <a class="navbar-brand" href="/">
             <i class="fas fa-bolt"></i> 安吉电信动力设备管理系统
@@ -236,12 +237,13 @@
                 <a class="nav-link active" href="/connections">连接管理</a>
                 <a class="nav-link" href="/analytics">统计分析</a>
                 <a class="nav-link" href="/lifecycle-management">生命周期管理</a>
+                <a class="nav-link" href="/topology">拓扑图</a>
             </div>
         </div>
     </nav>
 
     <div class="container-fluid mt-4">
-        <div class="row">
+        <div class="row d-none">
             <div class="col-12">
                 <h2><i class="fas fa-project-diagram"></i> 设备连接管理</h2>
                 <p class="text-muted">管理设备间的供电连接关系</p>
@@ -254,19 +256,19 @@
         </div>
 
         <!-- 标签页导航 -->
-        <ul class="nav nav-tabs" id="connectionTabs" role="tablist">
+        <ul class="nav nav-tabs d-none" id="connectionTabs" role="tablist">
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="list-tab" data-bs-toggle="tab" data-bs-target="#list" type="button" role="tab">
                     <i class="fas fa-list"></i> 连接列表
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="topology-tab" data-bs-toggle="tab" data-bs-target="#topology" type="button" role="tab">
+                <button class="nav-link d-none" id="topology-tab" data-bs-toggle="tab" data-bs-target="#topology" type="button" role="tab">
                     <i class="fas fa-sitemap"></i> 拓扑图
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="statistics-tab" data-bs-toggle="tab" data-bs-target="#statistics" type="button" role="tab">
+                <button class="nav-link d-none" id="statistics-tab" data-bs-toggle="tab" data-bs-target="#statistics" type="button" role="tab">
                     <i class="fas fa-chart-bar"></i> 连接统计
                 </button>
             </li>
@@ -279,9 +281,14 @@
                 <div class="card mt-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0"><i class="fas fa-list"></i> 连接关系列表</h5>
-                        <button class="btn btn-primary btn-sm" onclick="showAddConnectionModal()">
-                            <i class="fas fa-plus"></i> 添加连接
-                        </button>
+                        <div class="d-flex align-items-center">
+                            <button class="btn btn-outline-primary btn-sm me-2" onclick="exportConnections()" title="导出当前筛选结果为CSV">
+                                <i class="fas fa-download"></i> 数据导出
+                            </button>
+                            <button class="btn btn-primary btn-sm" onclick="showAddConnectionModal()">
+                                <i class="fas fa-plus"></i> 添加连接
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body">
                         <!-- 筛选条件 -->
@@ -337,7 +344,7 @@
             </div>
 
             <!-- 拓扑图标签页 -->
-            <div class="tab-pane fade" id="topology" role="tabpanel">
+            <div class="tab-pane fade d-none" id="topology" role="tabpanel">
                 <div class="card mt-3">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="fas fa-sitemap"></i> 连接拓扑图</h5>
@@ -367,7 +374,7 @@
             </div>
 
             <!-- 连接统计标签页 -->
-            <div class="tab-pane fade" id="statistics" role="tabpanel">
+            <div class="tab-pane fade d-none" id="statistics" role="tabpanel">
                 <div class="card mt-3">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0"><i class="fas fa-chart-bar"></i> 连接统计分析</h5>
@@ -712,7 +719,7 @@
                 '交流': ['AC', 'ac', '交流'],
                 '直流': ['DC', 'dc', '直流'],
                 '已使用总量': 'used_total', // 特殊标识，表示所有非空连接
-                '空闲': [null, '', 'null', 'None', undefined]
+                '空闲': [null, '', 'null', 'None', 'nan', 'NaN', undefined]
             };
             return typeMap[displayType] || [displayType];
         }
@@ -744,16 +751,13 @@
                             const allowedTypes = getDatabaseConnectionTypes(typeFilter);
                             
                             if (allowedTypes === 'used_total') {
-                                // 筛选已使用总量：显示所有有连接类型的记录（非空闲）
-                                filteredData = result.data.filter(conn => 
-                                    conn.connection_type && 
-                                    conn.connection_type !== null && 
-                                    conn.connection_type !== '' && 
-                                    conn.connection_type !== 'null' && 
-                                    conn.connection_type !== 'None'
-                                );
+                                // 筛选已使用总量：排除空值（含 'nan'/'None' 等）
+                                filteredData = result.data.filter(conn => !isEmptyValue(conn.connection_type));
+                            } else if (typeFilter === '空闲') {
+                                // 空闲端口：包含所有空值（含 'nan'/'None' 等）
+                                filteredData = result.data.filter(conn => isEmptyValue(conn.connection_type));
                             } else {
-                                // 其他类型的正常筛选
+                                // 其他类型的正常筛选（交流/直流等）
                                 filteredData = result.data.filter(conn => 
                                     allowedTypes.includes(conn.connection_type)
                                 );
@@ -771,10 +775,26 @@
             }
         }
 
+        // 工具函数：判断空值（含 'nan'/'null'/'None'）
+        function isEmptyValue(val) {
+            if (val === undefined || val === null) return true;
+            const s = String(val).trim().toLowerCase();
+            return s === '' || s === 'null' || s === 'none' || s === 'nan';
+        }
+
+        // 工具函数：展示前清洗值（空值统一为 '-')
+        function sanitizeValue(val) {
+            if (val === undefined || val === null) return '-';
+            const s = String(val).trim();
+            const lower = s.toLowerCase();
+            if (s === '' || lower === 'null' || lower === 'none' || lower === 'nan') return '-';
+            return s;
+        }
+
         // 连接类型映射函数
         function getConnectionTypeDisplay(type) {
-            // 如果连接类型为空（null、undefined或空字符串），表示空闲端口
-            if (!type || type === 'null' || type === 'None') {
+            // 空值（含 'nan'）视为空闲
+            if (isEmptyValue(type)) {
                 return '空闲';
             }
             
@@ -819,29 +839,28 @@
                     'DC': 'dc',
                     'dc': 'dc'
                 };
-                // 如果连接类型为空，使用空闲样式
-                const typeClass = typeClassMap[displayType] || ((!conn.connection_type || conn.connection_type === 'null' || conn.connection_type === 'None') ? 'idle' : 'unknown');
+                // 如果连接类型为空（含 'nan'），使用空闲样式
+                const typeClass = typeClassMap[displayType] || (isEmptyValue(conn.connection_type) ? 'idle' : 'unknown');
                 
                 const row = document.createElement('tr');
                 // 处理备注显示，如果备注过长则截断并添加省略号
-                const remarkText = conn.remark || '-';
-                const displayRemark = remarkText.length > 20 ? remarkText.substring(0, 20) + '...' : remarkText;
+                const remarkText = sanitizeValue(conn.remark);
+                const displayRemark = remarkText !== '-' && remarkText.length > 20 ? remarkText.substring(0, 20) + '...' : remarkText;
                 
-                // 直接使用数据库中的A端和B端额定电流字段
-                const sourceRating = conn.a_rated_current || '-';
-                // 直接使用数据库中的B端额定电流字段
-                const targetRating = conn.b_rated_current || '-';
+                // 使用清洗后的 A/B 端额定电流字段
+                const sourceRating = sanitizeValue(conn.a_rated_current);
+                const targetRating = sanitizeValue(conn.b_rated_current);
                 
                 row.innerHTML = `
                     <td>${conn.id}</td>
-                    <td>${conn.source_device_name || 'N/A'}</td>
-                    <td>${conn.source_port || '-'}</td>
+                    <td>${sanitizeValue(conn.source_device_name) || 'N/A'}</td>
+                    <td>${sanitizeValue(conn.source_port)}</td>
                     <td>${sourceRating}</td>
-                    <td>${conn.target_device_name || 'N/A'}</td>
-                    <td>${conn.target_port || '-'}</td>
+                    <td>${sanitizeValue(conn.target_device_name) || 'N/A'}</td>
+                    <td>${sanitizeValue(conn.target_port)}</td>
                     <td>${targetRating}</td>
                     <td><span class="badge status-badge connection-type-${typeClass}">${displayType}</span></td>
-                    <td>${conn.cable_model || '-'}</td>
+                    <td>${sanitizeValue(conn.cable_model)}</td>
                     <td title="${remarkText}">${displayRemark}</td>
                     <td>
                         <div class="d-flex gap-1 flex-wrap justify-content-center">
@@ -1750,6 +1769,106 @@
             // 页面初始化完成
             console.log('连接管理页面加载完成');
         });
+
+        // 新增：导出当前筛选结果为CSV
+        async function exportConnections() {
+            try {
+                const typeFilter = document.getElementById('connectionTypeFilter').value;
+                const deviceNameFilter = document.getElementById('deviceNameFilter').value.trim();
+                
+                // 分页逐页拉取，确保导出覆盖全部筛选结果
+                const pageSize = 1000;
+                let page = 1;
+                let allRows = [];
+                let totalPages = 1;
+                
+                // 先获取第一页，读取分页信息
+                {
+                    let url = `/api/connections?page=${page}&page_size=${pageSize}`;
+                    const params = new URLSearchParams();
+                    if (deviceNameFilter) params.append('device_name', deviceNameFilter);
+                    if (params.toString()) url += `&${params.toString()}`;
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error(`获取连接数据失败: ${resp.status}`);
+                    const result = await resp.json();
+                    const data = result.data || [];
+                    const pagination = result.pagination || { total_pages: 1 };
+                    totalPages = pagination.total_pages || 1;
+                    allRows = data;
+                }
+                
+                // 拉取剩余页
+                for (page = 2; page <= totalPages; page++) {
+                    let url = `/api/connections?page=${page}&page_size=${pageSize}`;
+                    const params = new URLSearchParams();
+                    if (deviceNameFilter) params.append('device_name', deviceNameFilter);
+                    if (params.toString()) url += `&${params.toString()}`;
+                    const resp = await fetch(url);
+                    if (!resp.ok) break; // 容错处理
+                    const result = await resp.json();
+                    const data = result.data || [];
+                    allRows = allRows.concat(data);
+                }
+                
+                // 根据类型在前端筛选，保持与列表一致
+                if (typeFilter && typeFilter !== 'all') {
+                    if (typeFilter === '空闲') {
+                        allRows = allRows.filter(conn => isEmptyValue(conn.connection_type));
+                    } else if (typeFilter === '已使用总量') {
+                        allRows = allRows.filter(conn => !isEmptyValue(conn.connection_type));
+                    } else {
+                        // 交流/直流等
+                        const allowedMap = {
+                            '交流': ['交流','AC','ac'],
+                            '直流': ['直流','DC','dc']
+                        };
+                        const allow = allowedMap[typeFilter] || [];
+                        allRows = allRows.filter(conn => allow.includes(conn.connection_type));
+                    }
+                }
+                
+                // 生成CSV
+                const headers = ['连接ID','A端设备','A端端口','A端额定电流','B端设备','B端端口','B端额定电流','连接类型','规格型号','备注'];
+                const escape = v => '"' + String(v).replace(/"/g,'""') + '"';
+                const rows = allRows.map(conn => [
+                    sanitizeValue(conn.id),
+                    sanitizeValue(conn.source_device_name),
+                    sanitizeValue(conn.source_port),
+                    sanitizeValue(conn.a_rated_current),
+                    sanitizeValue(conn.target_device_name),
+                    sanitizeValue(conn.target_port),
+                    sanitizeValue(conn.b_rated_current),
+                    (function(){
+                        if (isEmptyValue(conn.connection_type)) return '空闲';
+                        const m = { 'AC':'交流','ac':'交流','DC':'直流','dc':'直流','交流':'交流','直流':'直流' };
+                        return sanitizeValue(m[conn.connection_type] || conn.connection_type);
+                    })(),
+                    sanitizeValue(conn.cable_model),
+                    sanitizeValue(conn.remark)
+                ].map(escape).join(','));
+                
+                const csvContent = '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const ts = new Date();
+                const tsStr = `${ts.getFullYear()}${String(ts.getMonth()+1).padStart(2,'0')}${String(ts.getDate()).padStart(2,'0')}_${String(ts.getHours()).padStart(2,'0')}${String(ts.getMinutes()).padStart(2,'0')}${String(ts.getSeconds()).padStart(2,'0')}`;
+                a.href = url;
+                a.download = `connections_export_${tsStr}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                const count = allRows.length;
+                if (count === 0) {
+                    alert('当前筛选结果为空，无可导出的数据');
+                }
+            } catch (error) {
+                console.error('导出连接数据失败:', error);
+                alert('导出失败: ' + (error && error.message ? error.message : '未知错误'));
+            }
+        }
     </script>
 </body>
 </html>

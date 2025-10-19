@@ -124,11 +124,17 @@ class PortTopologyManager {
     bindEvents() {
         if (!this.network) return;
 
-        // 节点点击事件
+        // 点击事件：节点或边
         this.network.on('click', (params) => {
-            if (params.nodes.length > 0) {
+            if (params.nodes && params.nodes.length > 0) {
                 const nodeId = params.nodes[0];
                 this.onNodeClick(nodeId);
+            } else if (params.edges && params.edges.length > 0) {
+                const edgeId = params.edges[0];
+                const edgeObj = this.edges.get(edgeId);
+                if (edgeObj && edgeObj.edgeData) {
+                    this.showEdgeTooltip(edgeObj.edgeData);
+                }
             }
         });
 
@@ -154,14 +160,24 @@ class PortTopologyManager {
             }
         });
 
-        // 悬停事件
+        // 悬停事件（节点/边）
         this.network.on('hoverNode', (params) => {
             this.onNodeHover(params.node);
         });
+        this.network.on('hoverEdge', (params) => {
+            const edgeId = params.edge;
+            const edgeObj = this.edges.get(edgeId);
+            if (edgeObj && edgeObj.edgeData) {
+                this.showEdgeTooltip(edgeObj.edgeData);
+            }
+        });
 
-        // 离开悬停事件
+        // 离开悬停事件（节点/边）
         this.network.on('blurNode', (params) => {
             this.onNodeBlur(params.node);
+        });
+        this.network.on('blurEdge', () => {
+            this.hideEdgeTooltip();
         });
     }
 
@@ -301,8 +317,20 @@ class PortTopologyManager {
                         title: edge.title || this.generateEdgeTitle(edge),
                         color: colorValue,
                         width: widthValue,
-                        // 尊重后端提供的箭头方向；若无，则默认指向 to
-                        arrows: (edge.arrows != null ? edge.arrows : { to: { enabled: true } }),
+                        // 箭头方向：结构性边禁用；若上下游为“平级”也禁用
+                        arrows: (() => {
+                            const isStructural = edge.connection_id == null; // 设备↔端口等结构性边不应显示箭头
+                            if (isStructural) return { to: { enabled: false } };
+                            const upstream = String(edge.upstream_downstream || (edge.edgeData && edge.edgeData.upstream_downstream) || '').trim();
+                            const isPeer = upstream === '平级';
+                            if (isPeer) return { to: { enabled: false } };
+                            if (typeof edge.arrows === 'string') {
+                                const s = edge.arrows.trim();
+                                return s ? edge.arrows : { to: { enabled: false } };
+                            }
+                            if (edge.arrows != null) return edge.arrows;
+                            return { to: { enabled: true } };
+                        })(),
                         // 保存原始数据
                         edgeData: edge
                     };
@@ -736,6 +764,62 @@ class PortTopologyManager {
     }
 
     /**
+     * 显示连接线提示（电缆型号、备注）
+     */
+    showEdgeTooltip(edgeData) {
+        try {
+            // 先清理旧的提示
+            this.hideEdgeTooltip();
+            
+            const tooltip = document.createElement('div');
+            tooltip.id = 'edge-tooltip';
+            tooltip.className = 'card shadow-sm';
+            tooltip.style.position = 'absolute';
+            tooltip.style.minWidth = '180px';
+            tooltip.style.maxWidth = '380px';
+            tooltip.style.padding = '8px 10px';
+            tooltip.style.border = '1px solid #ddd';
+            tooltip.style.background = '#ffffff';
+            tooltip.style.borderRadius = '6px';
+            tooltip.style.zIndex = '10000';
+            tooltip.style.pointerEvents = 'none';
+            
+            const cm = String(edgeData.cable_model || '').trim();
+            const rk = String(edgeData.remark || '').trim();
+            const ct = String(edgeData.cable_type || edgeData.connection_type || '').trim();
+            const content = [
+                `<div class="fw-bold text-primary">连接详情</div>`,
+                ct && `<div><span class="text-muted">类型</span>：${ct}</div>`,
+                `<div><span class="text-muted">电缆型号</span>：${cm || '-'}</div>`,
+                `<div><span class="text-muted">备注</span>：${rk || '-'}</div>`
+            ].filter(Boolean).join('');
+            
+            tooltip.innerHTML = content;
+            
+            const updateTooltipPosition = (event) => {
+                tooltip.style.left = (event.clientX + 10) + 'px';
+                tooltip.style.top = (event.clientY - 10) + 'px';
+            };
+            document.addEventListener('mousemove', updateTooltipPosition);
+            tooltip.addEventListener('remove', () => {
+                document.removeEventListener('mousemove', updateTooltipPosition);
+            });
+            
+            document.body.appendChild(tooltip);
+        } catch (e) {
+            console.warn('显示连接线提示失败:', e);
+        }
+    }
+
+    /**
+     * 隐藏连接线提示
+     */
+    hideEdgeTooltip() {
+        const t = document.getElementById('edge-tooltip');
+        if (t) t.remove();
+    }
+
+    /**
      * 显示节点详情
      */
     showNodeDetails(nodeData) {
@@ -961,11 +1045,11 @@ class PortTopologyManager {
         this.currentLayout = layoutType;
         console.log('更新端口拓扑图布局(新):', layoutType);
 
-        // 基础设置：禁用物理引擎与平滑，避免自动重排；保留边箭头等配置
+        // 基础设置：禁用物理引擎与平滑，避免自动重排；保留边样式配置（不强制全局箭头）
         this.network.setOptions({
             layout: { improvedLayout: false, hierarchical: { enabled: false } },
             physics: { enabled: false },
-            edges: { smooth: { enabled: false }, arrows: { to: { enabled: true } } }
+            edges: { smooth: { enabled: false } }
         });
 
         const containerW = (this.container && this.container.clientWidth) || 1000;
@@ -1574,7 +1658,19 @@ class PortTopologyManager_Backup3 {
                     title: edge.title || this.generateEdgeTitle(edge),
                     color: { color: '#FF0000', highlight: '#FF0000', hover: '#FF0000' },
                     width: edge.width || 3,
-                    arrows: { to: { enabled: true } },
+                    arrows: (() => {
+                        const isStructural = edge.connection_id == null; // 结构性边禁用箭头
+                        if (isStructural) return { to: { enabled: false } };
+                        const upstream = String(edge.upstream_downstream || '').trim();
+                        const isPeer = upstream === '平级';
+                        if (isPeer) return { to: { enabled: false } };
+                        if (typeof edge.arrows === 'string') {
+                            const s = edge.arrows.trim();
+                            return s ? edge.arrows : { to: { enabled: false } };
+                        }
+                        if (edge.arrows != null) return edge.arrows;
+                        return { to: { enabled: true } };
+                    })(),
                     // 保存原始数据
                     edgeData: edge
                 }));

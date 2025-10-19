@@ -1,0 +1,42 @@
+/* 全局导航样式（无底色，文字加粗，当前模块更显眼） */
+.navbar-clean {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.navbar-clean .navbar-brand {
+  color: #2c3e50 !important;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.navbar-clean .nav-link {
+  color: #3c4043 !important; /* 深灰默认文字 */
+  font-weight: 600;          /* 链接加粗 */
+  padding: 0.5rem 0.75rem;
+}
+
+.navbar-clean .nav-link:hover {
+  color: #1976d2 !important; /* 悬停主色 */
+}
+
+.navbar-clean .nav-link.active {
+  color: #1976d2 !important; /* 激活主色 */
+  font-weight: 700;           /* 激活更粗 */
+  position: relative;
+}
+
+/* 激活态下方细线强调 */
+.navbar-clean .nav-link.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -8px;
+  height: 2px;
+  width: 100%;
+  background-color: #1976d2;
+  border-radius: 2px;
+}
+
+/* 容器内右侧导航对齐 */
+.navbar-clean .navbar-nav.ms-auto .nav-link { margin-left: 0.25rem; }

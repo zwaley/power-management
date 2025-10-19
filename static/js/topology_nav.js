@@ -35,7 +35,7 @@
   async function performSearch(q) {
     try {
       const params = new URLSearchParams();
-      if (q) params.set('q', q);
+      if (q) params.set('query', q);
       params.set('limit', '30');
       const resp = await fetch(`/api/devices/search?${params.toString()}`);
       const json = await resp.json();

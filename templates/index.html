@@ -6,7 +6,8 @@
     <title>安吉电信动力设备管理系统</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+    <link href="/static/css/nav.css" rel="stylesheet">
+    <link href="/static/styles.css" rel="stylesheet">
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -403,7 +404,7 @@
     </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <nav class="navbar navbar-expand-lg navbar-clean">
         <div class="container-fluid">
             <a class="navbar-brand" href="/">
                 <i class="fas fa-bolt"></i> 安吉电信动力设备管理系统
@@ -421,8 +422,10 @@
     <div class="container-fluid mt-4">
         <div class="row">
             <div class="col-12">
-                <h2><i class="fas fa-server"></i> 设备管理</h2>
-                <p class="text-muted">管理动力设备信息，包括设备导入、查询、编辑和导出功能</p>
+                <h2>
+                    <i class="fas fa-server"></i> 设备管理
+                    <small class="text-muted">管理动力设备信息，包括设备导入、查询、编辑和导出功能</small>
+                </h2>
             </div>
         </div>
 
@@ -471,143 +474,87 @@
             </div>
         </div>
 
-        <!-- 手动添加设备表单 -->
-        <div class="card mt-3">
-            <div class="card-header">
-                <h5 class="mb-0 text-success fw-bold"><i class="fas fa-plus me-2"></i> 手动添加设备</h5>
-            </div>
-            <div class="card-body">
-                <form action="/devices" method="post">
-                    <!-- 第一行：基本信息 -->
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">资产编号 *</label>
-                            <input type="text" name="asset_id" class="form-control" placeholder="输入资产编号" required>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">设备名称 *</label>
-                            <input type="text" name="name" class="form-control" placeholder="输入设备名称" required>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">局站 *</label>
-                            <input type="text" name="station" class="form-control" placeholder="输入局站名称" required>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">设备类型 *</label>
-                            <select name="device_type" class="form-select" required>
-                                <option value="" disabled selected>请选择设备类型</option>
-                                {% for type in device_types %}
-                                <option value="{{ type }}">{{ type }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <!-- 第二行：设备详情 -->
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">设备型号</label>
-                            <input type="text" name="model" class="form-control" placeholder="输入型号">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">额定容量</label>
-                            <input type="text" name="power_rating" class="form-control" placeholder="输入容量">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">所在位置</label>
-                            <input type="text" name="location" class="form-control" placeholder="输入位置信息">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">生产厂家</label>
-                            <input type="text" name="vendor" class="form-control" placeholder="输入厂家名称">
-                        </div>
-                    </div>
-                    
-                    <!-- 第三行：其他信息和操作 -->
-                    <div class="row g-3 align-items-end">
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">投产日期</label>
-                            <input type="text" name="commission_date" class="form-control" placeholder="YYYY-MM-DD">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-primary">备注</label>
-                            <input type="text" name="remark" class="form-control" placeholder="输入备注信息">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label fw-bold text-danger">管理员密码 *</label>
-                            <input type="password" id="manual-password" name="password" class="form-control" placeholder="输入密码" required>
-                        </div>
-                        <div class="col-md-3">
-                            <button type="submit" class="btn btn-success w-100"><i class="fas fa-plus"></i> 添加设备</button>
-                        </div>
-                    </div>
-                </form>
-            </div>
+        <!-- 手动添加设备表单卡片改为隐藏以节省空间 -->
+        <div class="card mt-3 d-none" id="manualAddCard">
+        <!-- 原手动添加设备表单保留但不显示，功能迁移到弹窗 -->
+        </div>
+        <div class="card mt-3 d-none" id="manualAddCard">
+            <!-- 手动添加设备表单已隐藏，改用弹窗表单 -->
         </div>
 
         <!-- 设备列表 -->
         <div class="card mt-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-list"></i> 设备列表</h5>
-                <button class="btn btn-primary btn-sm" onclick="showExportDialog()">
-                    <i class="fas fa-download"></i> 导出数据
-                </button>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-warning btn-sm" data-bs-toggle="collapse" data-bs-target="#deviceFilterCollapse" aria-expanded="false" aria-controls="deviceFilterCollapse">
+                        <i class="fas fa-filter"></i> 筛选
+                    </button>
+                    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#manualAddModal">
+                        <i class="fas fa-plus"></i> 手动添加设备
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="showExportDialog()">
+                        <i class="fas fa-download"></i> 导出数据
+                    </button>
+                </div>
             </div>
             <div class="card-body">
-                <!-- 筛选功能 -->
-                <div class="mb-3 p-3 bg-light rounded border">
-                    <h6 class="mb-3 text-secondary"><i class="fas fa-filter"></i> 筛选设备</h6>
-                    <div class="row g-3">
-                        <div class="col-md-6 col-lg-4">
-                            <label for="stationFilter" class="form-label fw-bold">按局站筛选:</label>
-                            <select id="stationFilter" class="form-select" onchange="filterDevices()">
-                                <option value="">全部局站</option>
-                                {% for station in stations %}
-                                <option value="{{ station }}">{{ station }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-6 col-lg-4">
-                            <label for="nameFilter" class="form-label fw-bold">按设备名称筛选:</label>
-                            <input type="text" id="nameFilter" class="form-control" placeholder="输入设备名称" onkeyup="filterDevices()">
-                        </div>
-                        <div class="col-md-6 col-lg-4">
-                            <label for="deviceTypeFilter" class="form-label fw-bold">按设备类型筛选:</label>
-                            <select id="deviceTypeFilter" class="form-select" onchange="filterDevices()">
-                                <option value="">全部类型</option>
-                                {% for device_type in device_types %}
-                                <option value="{{ device_type }}">{{ device_type }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-6 col-lg-4">
-                            <label for="vendorFilter" class="form-label fw-bold">按生产厂家筛选:</label>
-                            <input type="text" id="vendorFilter" class="form-control" placeholder="输入厂家名称(支持模糊查询)" onkeyup="filterDevices()">
-                        </div>
-                        <div class="col-md-6 col-lg-4">
-                            <label for="lifecycleFilter" class="form-label fw-bold">生命周期状态:</label>
-                            <select id="lifecycleFilter" class="form-select" onchange="filterDevices()">
-                                <option value="">全部状态</option>
-                                <option value="normal">正常设备</option>
-                                <option value="warning">临近超限</option>
-                                <option value="expired">已超期</option>
-                                <option value="unknown">未配置规则</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 col-lg-2">
-                            <label class="form-label fw-bold text-transparent">操作:</label>
-                            <button type="button" class="btn btn-secondary w-100" onclick="clearFilters()">
-                                <i class="fas fa-times"></i> 清除筛选
-                            </button>
-                        </div>
-                        <div class="col-md-6 col-lg-2">
-                            <label class="form-label fw-bold text-transparent">管理:</label>
-                            <button type="button" class="btn btn-success w-100" onclick="goToLifecycleManagement()">
-                                <i class="fas fa-clock"></i> 生命周期管理
-                            </button>
+                <!-- 筛选功能（可折叠） -->
+                <div id="deviceFilterCollapse" class="collapse">
+                    <div class="mb-3 p-3 bg-light rounded border">
+                        <h6 class="mb-3 text-secondary"><i class="fas fa-filter"></i> 筛选设备</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6 col-lg-4">
+                                <label for="stationFilter" class="form-label fw-bold">按局站筛选:</label>
+                                <select id="stationFilter" class="form-select" onchange="filterDevices()">
+                                    <option value="">全部局站</option>
+                                    {% for station in stations %}
+                                    <option value="{{ station }}">{{ station }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6 col-lg-4">
+                                <label for="nameFilter" class="form-label fw-bold">按设备名称筛选:</label>
+                                <input type="text" id="nameFilter" class="form-control" placeholder="输入设备名称" onkeyup="filterDevices()">
+                            </div>
+                            <div class="col-md-6 col-lg-4">
+                                <label for="deviceTypeFilter" class="form-label fw-bold">按设备类型筛选:</label>
+                                <select id="deviceTypeFilter" class="form-select" onchange="filterDevices()">
+                                    <option value="">全部类型</option>
+                                    {% for device_type in device_types %}
+                                    <option value="{{ device_type }}">{{ device_type }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-6 col-lg-4">
+                                <label for="vendorFilter" class="form-label fw-bold">按生产厂家筛选:</label>
+                                <input type="text" id="vendorFilter" class="form-control" placeholder="输入厂家名称(支持模糊查询)" onkeyup="filterDevices()">
+                            </div>
+                            <div class="col-md-6 col-lg-4">
+                                <label for="lifecycleFilter" class="form-label fw-bold">生命周期状态:</label>
+                                <select id="lifecycleFilter" class="form-select" onchange="filterDevices()">
+                                    <option value="">全部状态</option>
+                                    <option value="normal">正常设备</option>
+                                    <option value="warning">临近超限</option>
+                                    <option value="expired">已超期</option>
+                                    <option value="unknown">未配置规则</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 col-lg-2">
+                                <label class="form-label fw-bold text-transparent">操作:</label>
+                                <button type="button" class="btn btn-secondary w-100" onclick="clearFilters()">
+                                    <i class="fas fa-times"></i> 清除筛选
+                                </button>
+                            </div>
+                            <div class="col-md-6 col-lg-2">
+                                <label class="form-label fw-bold text-transparent">管理:</label>
+                                <button type="button" class="btn btn-success w-100" onclick="goToLifecycleManagement()">
+                                    <i class="fas fa-clock"></i> 生命周期管理
+                                </button>
+                            </div>
                         </div>
                     </div>
-            </div>
+                </div>
             
             <div class="table-responsive">
                 <table id="deviceTable" class="table table-striped table-hover">
@@ -649,7 +596,7 @@
                     <td>{{ device.remark or 'N/A' }}</td>
                     <td>
                         <div class="d-flex gap-1 flex-wrap">
-                            <a href="/graph/{{ device.id }}" target="_blank" class="btn btn-info btn-sm text-white">
+                            <a href="/topology?id={{ device.id }}" target="_blank" class="btn btn-info btn-sm text-white">
                                 <i class="fas fa-project-diagram"></i> 拓扑图
                             </a>
                             <button onclick="editDevice({{ device.id }})" class="btn btn-warning btn-sm text-dark">
@@ -873,7 +820,7 @@
                 const savedConditions = localStorage.getItem('deviceFilterConditions');
                 if (savedConditions) {
                     const conditions = JSON.parse(savedConditions);
-                    
+        
                     // 恢复各个筛选条件
                     if (conditions.station) {
                         document.getElementById('stationFilter').value = conditions.station;
@@ -890,9 +837,8 @@
                     if (conditions.lifecycle) {
                         document.getElementById('lifecycleFilter').value = conditions.lifecycle;
                     }
-                    
-                    // 应用恢复的筛选条件
-                    filterDevices();
+        
+                    // 不再自动应用恢复的筛选条件，等待用户手动触发
                 }
             } catch (error) {
                 console.error('恢复筛选条件失败:', error);
@@ -989,6 +935,80 @@
         });
     </script>
     
+    <!-- 手动添加设备弹窗 -->
+    <div class="modal fade" id="manualAddModal" tabindex="-1" aria-labelledby="manualAddModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="manualAddModalLabel"><i class="fas fa-plus me-2"></i> 手动添加设备</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="manualAddFormModal" action="/devices" method="post">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">资产编号 *</label>
+                                <input type="text" name="asset_id" class="form-control" placeholder="输入资产编号" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">设备名称 *</label>
+                                <input type="text" name="name" class="form-control" placeholder="输入设备名称" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">局站 *</label>
+                                <input type="text" name="station" class="form-control" placeholder="输入局站名称" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">设备类型 *</label>
+                                <select name="device_type" class="form-select" required>
+                                    <option value="" disabled selected>请选择设备类型</option>
+                                    {% for type in device_types %}
+                                    <option value="{{ type }}">{{ type }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">设备型号</label>
+                                <input type="text" name="model" class="form-control" placeholder="输入型号">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">额定容量</label>
+                                <input type="text" name="power_rating" class="form-control" placeholder="输入容量">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">所在位置</label>
+                                <input type="text" name="location" class="form-control" placeholder="输入位置信息">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">生产厂家</label>
+                                <input type="text" name="vendor" class="form-control" placeholder="输入厂家名称">
+                            </div>
+                        </div>
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">投产日期</label>
+                                <input type="text" name="commission_date" class="form-control" placeholder="YYYY-MM-DD">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-primary">备注</label>
+                                <input type="text" name="remark" class="form-control" placeholder="输入备注信息">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold text-danger">管理员密码 *</label>
+                                <input type="password" name="password" class="form-control" placeholder="输入密码" required>
+                            </div>
+                            <div class="col-md-3 d-flex align-items-end">
+                                <button type="submit" class="btn btn-success w-100"><i class="fas fa-plus"></i> 添加设备</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
     <!-- 导出确认对话框 -->
     <div id="exportDialog" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000;">
         <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); min-width: 400px;">
@@ -1018,6 +1038,7 @@
         </div>
     </div>
     
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', path='script.js') }}"></script>
 </body>
 </html>

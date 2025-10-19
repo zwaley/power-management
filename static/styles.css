@@ -1,7 +1,20 @@
 /* 动力资源资产管理系统 - 样式文件 */
 
-/* 这个文件目前为空，因为主要样式已经在HTML文件中内联定义 */
-/* 可以在这里添加额外的样式定义 */
+/* 页面标题后半部分的小字样式：更小、更淡（约为主标题一半大小） */
+h1 small.text-muted,
+h2 small.text-muted {
+    font-size: 0.5em;          /* 相对于 h1/h2 的一半大小 */
+    color: #b6c0c9;            /* 更淡的灰色 */
+    opacity: 0.55;             /* 进一步降低视觉权重 */
+    font-weight: 400;          /* 常规字重，避免过于醒目 */
+    margin-left: 0.5rem;       /* 与主标题留出间距 */
+}
+
+/* 如果需要完全隐藏说明文字，可启用此类（备选方案） */
+.hide-muted-small h1 small.text-muted,
+.hide-muted-small h2 small.text-muted {
+    display: none !important;
+}
 
 /* 示例：可以添加一些额外的样式 */
 .highlight {
