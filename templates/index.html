@@ -515,7 +515,10 @@
                             </div>
                             <div class="col-md-6 col-lg-4">
                                 <label for="nameFilter" class="form-label fw-bold">按设备名称筛选:</label>
-                                <input type="text" id="nameFilter" class="form-control" placeholder="输入设备名称" onkeyup="filterDevices()">
+                                <input type="text" id="nameFilter" class="form-control" list="deviceNameOptions" placeholder="输入或选择设备名称" onfocus="prepareAllDeviceNameOptions()" onclick="prepareAllDeviceNameOptions()" oninput="debouncedFilterDevices()" onchange="filterDevices()" onblur="finalizeDeviceNameFilter()" onkeypress="if(event.key==='Enter') filterDevices()">
+                                <datalist id="deviceNameOptions">
+                                    <!-- 设备名称选项将由脚本在页面加载时自动填充 -->
+                                </datalist>
                             </div>
                             <div class="col-md-6 col-lg-4">
                                 <label for="deviceTypeFilter" class="form-label fw-bold">按设备类型筛选:</label>
@@ -528,7 +531,10 @@
                             </div>
                             <div class="col-md-6 col-lg-4">
                                 <label for="vendorFilter" class="form-label fw-bold">按生产厂家筛选:</label>
-                                <input type="text" id="vendorFilter" class="form-control" placeholder="输入厂家名称(支持模糊查询)" onkeyup="filterDevices()">
+                                <input type="text" id="vendorFilter" class="form-control" list="vendorOptions" placeholder="输入或选择厂家名称" onfocus="prepareVendorOptions()" onclick="prepareVendorOptions()" oninput="debouncedFilterDevices()" onchange="filterDevices()" onblur="finalizeVendorFilter()" onkeypress="if(event.key==='Enter') filterDevices()">
+                                <datalist id="vendorOptions">
+                                    <!-- 厂商选项将由脚本在页面加载时自动填充 -->
+                                </datalist>
                             </div>
                             <div class="col-md-6 col-lg-4">
                                 <label for="lifecycleFilter" class="form-label fw-bold">生命周期状态:</label>
@@ -888,6 +894,121 @@
                 }
             }
         }
+
+        // 输入筛选防抖，避免频繁触发表格筛选
+        let _filterTimer = null;
+        function debouncedFilterDevices(delay = 300) {
+            if (window.__suppressFilterOnce) { window.__suppressFilterOnce = false; return; }
+            if (_filterTimer) clearTimeout(_filterTimer);
+            _filterTimer = setTimeout(() => {
+                filterDevices();
+            }, delay);
+        }
+
+        // 填充设备名称的 datalist 选项（从当前表格中收集）
+        function populateDeviceNameOptions() {
+            try {
+                const datalist = document.getElementById('deviceNameOptions');
+                if (!datalist) return;
+                const tbody = document.querySelector('#deviceTable tbody');
+                if (!tbody) return;
+                const names = new Set();
+                // 第3列为设备名称
+                Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+                    const td = tr.children[2];
+                    if (!td) return;
+                    const name = (td.textContent || '').trim();
+                    if (name) names.add(name);
+                });
+                datalist.innerHTML = '';
+                // 生成选项
+                names.forEach(name => {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    datalist.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('填充设备名称选项失败:', e);
+            }
+        }
+
+        // 填充厂商的 datalist 选项（从当前表格中收集第9列）
+        function populateVendorOptions() {
+            try {
+                const datalist = document.getElementById('vendorOptions');
+                if (!datalist) return;
+                const tbody = document.querySelector('#deviceTable tbody');
+                if (!tbody) return;
+                const vendors = new Set();
+                Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+                    const td = tr.children[8]; // 厂家列
+                    if (!td) return;
+                    const vendor = (td.textContent || '').trim();
+                    if (vendor) vendors.add(vendor);
+                });
+                datalist.innerHTML = '';
+                vendors.forEach(vendor => {
+                    const opt = document.createElement('option');
+                    opt.value = vendor;
+                    datalist.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('填充厂商选项失败:', e);
+            }
+        }
+
+        // 聚焦时（仅当当前值与选项完全匹配）临时清空，保证下拉显示所有选项
+        function prepareAllDeviceNameOptions() {
+            const input = document.getElementById('nameFilter');
+            const datalist = document.getElementById('deviceNameOptions');
+            if (!input || !datalist) return;
+            const current = (input.value || '').trim();
+            if (!current) return;
+            const exactMatch = Array.from(datalist.options).some(opt => (opt.value || '').trim() === current);
+            if (exactMatch) {
+                input.dataset.prevValue = current;
+                input.value = '';
+                // 抑制一次防抖触发，避免瞬间清空导致筛选取消
+                window.__suppressFilterOnce = true;
+            }
+        }
+
+        // 失焦时如未选择而为空，则恢复之前的值；随后执行筛选
+        function finalizeDeviceNameFilter() {
+            const input = document.getElementById('nameFilter');
+            if (!input) return;
+            if ((input.value || '').trim() === '' && input.dataset.prevValue) {
+                input.value = input.dataset.prevValue;
+                delete input.dataset.prevValue;
+            }
+            filterDevices();
+        }
+
+        // 厂商筛选：聚焦时（仅当值完全匹配选项）临时清空，保证下拉显示全部选项
+        function prepareVendorOptions() {
+            const input = document.getElementById('vendorFilter');
+            const datalist = document.getElementById('vendorOptions');
+            if (!input || !datalist) return;
+            const current = (input.value || '').trim();
+            if (!current) return;
+            const exactMatch = Array.from(datalist.options).some(opt => (opt.value || '').trim() === current);
+            if (exactMatch) {
+                input.dataset.prevValue = current;
+                input.value = '';
+                window.__suppressFilterOnce = true;
+            }
+        }
+
+        // 厂商筛选：失焦时如未选择而为空，则恢复之前的值；随后执行筛选
+        function finalizeVendorFilter() {
+            const input = document.getElementById('vendorFilter');
+            if (!input) return;
+            if ((input.value || '').trim() === '' && input.dataset.prevValue) {
+                input.value = input.dataset.prevValue;
+                delete input.dataset.prevValue;
+            }
+            filterDevices();
+        }
         
         // 清除筛选条件
         function clearFilters() {
@@ -932,6 +1053,11 @@
             
             // 恢复筛选条件
             restoreFilterConditions();
+
+            // 页面初始化后填充设备名称下拉选项
+            populateDeviceNameOptions();
+            // 页面初始化后填充厂商下拉选项
+            populateVendorOptions();
         });
     </script>
     

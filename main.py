@@ -952,6 +952,100 @@ async def get_port_topology_v2(device_id: int, mode: str = "detailed", db: Sessi
 async def get_topology_ports(device_id: int, mode: str = "detailed", db: Session = Depends(get_db)):
     return await get_port_topology_data(device_id, mode, db)
 
+# 新增：全局设备拓扑API（无方向线，展示所有有连接关系的设备）
+@app.get("/api/topology/global")
+async def get_topology_global(
+    station: str = Query(None, description="站点筛选条件"),
+    device_type: str = Query(None, description="设备类型筛选条件"),
+    limit: int = Query(5000, ge=1, le=20000, description="最大处理的连接条数"),
+    db: Session = Depends(get_db)
+):
+    """返回全局设备拓扑：节点为设备，边为设备间连接，不显示箭头"""
+    try:
+        connections = db.query(Connection).limit(limit).all()
+
+        nodes_map = {}
+        edges = []
+        seen_pairs = set()
+
+        def add_device_node(d: Device):
+            # 过滤无效设备名：空/None/NaN/NULL/NA 等均视为无效，不生成节点
+            if not d or not d.id:
+                return
+            nm = str(d.name or "").strip()
+            if not nm:
+                return
+            if nm.lower() in {"nan", "na", "null", "none"}:
+                return
+            if device_type and d.device_type != device_type:
+                return
+            if station and d.station != station:
+                return
+            if d.id not in nodes_map:
+                lifecycle_status = _get_device_lifecycle_status(d, db)
+                nodes_map[d.id] = {
+                    "id": d.id,
+                    "label": nm,
+                    "title": f"""资产编号: {d.asset_id}\n名称: {d.name}\n设备类型: {d.device_type or 'N/A'}\n站点: {d.station or 'N/A'}\n型号: {d.model or 'N/A'}\n位置: {d.location or 'N/A'}\n额定容量: {d.power_rating or 'N/A'}\n生产厂家: {d.vendor or 'N/A'}\n投产时间: {d.commission_date or 'N/A'}\n生命周期状态: {lifecycle_status}""",
+                    "device_type": d.device_type,
+                    "station": d.station
+                }
+
+        for conn in connections:
+            # 过滤缺失端点的连接
+            if not conn.source_device_id or not conn.target_device_id:
+                continue
+
+            sd = db.query(Device).filter(Device.id == conn.source_device_id).first()
+            td = db.query(Device).filter(Device.id == conn.target_device_id).first()
+            if not sd or not td:
+                continue
+
+            # 若指定站点，仅保留该站点相关的设备与连接（源或目标有一个属于该站点即可）
+            if station and (sd.station != station and td.station != station):
+                continue
+            # 若指定设备类型，仅保留源或目标至少一个匹配的连接
+            if device_type and (sd.device_type != device_type and td.device_type != device_type):
+                continue
+
+            add_device_node(sd)
+            add_device_node(td)
+
+            # 若任一端设备名无效导致未生成节点，则跳过该边，避免隐式补节点
+            if sd.id not in nodes_map or td.id not in nodes_map:
+                continue
+
+            # 边去重（无方向）
+            key = tuple(sorted([sd.id, td.id]))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+
+            label = (conn.connection_type or conn.cable_type or "").strip()
+            edge = {
+                "from": sd.id,
+                "to": td.id,
+                "arrows": {"to": {"enabled": False}, "from": {"enabled": False}},
+                "color": {"color": "#9ca3af"},
+                "label": label,
+                "connection_type": conn.connection_type,
+                "cable_type": conn.cable_type,
+                "cable_model": conn.cable_model,
+                "connection_id": conn.id
+            }
+            edges.append(edge)
+
+        return JSONResponse(content={
+            "success": True,
+            "level": "global",
+            "nodes": list(nodes_map.values()),
+            "edges": edges
+        })
+    except Exception as e:
+        print(f"获取全局设备拓扑失败: {e}")
+        traceback.print_exc()
+        return JSONResponse(content={"success": False, "level": "global", "nodes": [], "edges": []})
+
 # 端口拓扑图数据生成函数
 def generate_port_topology_data(device_id: int):
     """生成端口拓扑图数据"""

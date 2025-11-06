@@ -67,12 +67,16 @@
             if (sel) sel.value = String(id);
             input.value = String(id);
             const name = getSelectedDeviceLabel();
-            status.textContent = `选择设备 #${id}`;
             const levelEl = document.getElementById('level-select');
             const level = levelEl ? levelEl.value : 'port';
-            if (level === 'device') {
+            if (level === 'global') {
+              status.textContent = '切换到全局设备图';
+              window.TopologyGlobal && window.TopologyGlobal.render && window.TopologyGlobal.render().catch(err => console.error(err));
+            } else if (level === 'device') {
+              status.textContent = `选择设备 #${id}`;
               window.TopologyDevice.render(id, name).catch(err => console.error(err));
             } else {
+              status.textContent = `选择设备 #${id}`;
               window.TopologyPorts.render(id, name).catch(err => console.error(err));
             }
           });
@@ -105,10 +109,14 @@
         const name = first.name || getSelectedDeviceLabel();
         const levelEl = document.getElementById('level-select');
         const level = levelEl ? levelEl.value : 'port';
-        status.textContent = `选择设备 #${id}`;
-        if (level === 'device') {
+        if (level === 'global') {
+          status.textContent = '切换到全局设备图';
+          window.TopologyGlobal && window.TopologyGlobal.render && window.TopologyGlobal.render().catch(err => console.error(err));
+        } else if (level === 'device') {
+          status.textContent = `选择设备 #${id}`;
           window.TopologyDevice.render(id, name).catch(err => console.error(err));
         } else {
+          status.textContent = `选择设备 #${id}`;
           window.TopologyPorts.render(id, name).catch(err => console.error(err));
         }
       } catch (e) {
@@ -130,14 +138,19 @@
     if (!sel) return;
     sel.addEventListener('change', () => {
       const id = Number(sel.value || '');
+      const levelEl = document.getElementById('level-select');
+      const level = levelEl ? levelEl.value : 'port';
+      if (level === 'global') {
+        document.getElementById('status-area').textContent = '切换到全局设备图';
+        window.TopologyGlobal && window.TopologyGlobal.render && window.TopologyGlobal.render().catch(err => console.error(err));
+        return;
+      }
       if (!id) {
         document.getElementById('status-area').textContent = '请选择有效设备';
         return;
       }
       const name = getSelectedDeviceLabel();
       document.getElementById('status-area').textContent = `选择设备 #${id}（${name}）`;
-      const levelEl = document.getElementById('level-select');
-      const level = levelEl ? levelEl.value : 'port';
       if (level === 'device') {
         window.TopologyDevice.render(id, name).catch(err => console.error(err));
       } else {
@@ -150,6 +163,17 @@
     const btn = document.getElementById('render-btn');
     if (!btn) return;
     btn.addEventListener('click', async () => {
+      const levelEl = document.getElementById('level-select');
+      const level = levelEl ? levelEl.value : 'port';
+      if (level === 'global') {
+        status.textContent = '开始渲染全局设备拓扑...';
+        const renderer = window.TopologyGlobal;
+        renderer && renderer.render && renderer.render().catch(err => {
+          console.error(err);
+          status.textContent = '渲染失败：' + (err?.message || err);
+        });
+        return;
+      }
       const sel = document.getElementById('device-select');
       let id = sel && sel.value ? Number(sel.value) : undefined;
       const input = document.getElementById('device-search-input');
@@ -173,8 +197,6 @@
         return;
       }
       const name = getSelectedDeviceLabel();
-      const levelEl = document.getElementById('level-select');
-      const level = levelEl ? levelEl.value : 'port';
       status.textContent = `开始渲染设备 ${id} 的${level === 'device' ? '设备级' : '端口级'}拓扑...`;
       const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
       renderer.render(id, name).catch(err => {
@@ -189,7 +211,7 @@
     sel.addEventListener('change', () => {
       const levelEl = document.getElementById('level-select');
       const level = levelEl ? levelEl.value : 'port';
-      const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
+      const renderer = level === 'global' ? window.TopologyGlobal : (level === 'device' ? window.TopologyDevice : window.TopologyPorts);
       if (renderer && renderer.setLayout) renderer.setLayout(sel.value);
     });
   }
@@ -201,7 +223,7 @@
       try {
         const levelEl = document.getElementById('level-select');
         const level = levelEl ? levelEl.value : 'port';
-        const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
+        const renderer = level === 'global' ? window.TopologyGlobal : (level === 'device' ? window.TopologyDevice : window.TopologyPorts);
         if (!document.fullscreenElement) {
           container.style.height = '100vh';
           await container.requestFullscreen();
@@ -218,7 +240,7 @@
     document.addEventListener('fullscreenchange', () => {
       const levelEl = document.getElementById('level-select');
       const level = levelEl ? levelEl.value : 'port';
-      const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
+      const renderer = level === 'global' ? window.TopologyGlobal : (level === 'device' ? window.TopologyDevice : window.TopologyPorts);
       if (document.fullscreenElement) {
         container.style.height = '100vh';
       } else {
@@ -239,7 +261,14 @@
         const name = getSelectedDeviceLabel();
         const levelEl = document.getElementById('level-select');
         const level = levelEl ? levelEl.value : 'port';
-        if (autoId) {
+        if (level === 'global') {
+          status.textContent = '自动渲染全局设备拓扑...';
+          const renderer = window.TopologyGlobal;
+          renderer && renderer.render && renderer.render().catch(err => {
+            console.error(err);
+            status.textContent = '自动渲染失败：' + (err?.message || err);
+          });
+        } else if (autoId) {
           status.textContent = `自动渲染设备 ${autoId} 的${level === 'device' ? '设备级' : '端口级'}拓扑...`;
           const renderer = level === 'device' ? window.TopologyDevice : window.TopologyPorts;
           renderer.render(autoId, name).catch(err => {

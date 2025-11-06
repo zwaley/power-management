@@ -119,3 +119,39 @@ const isValidLabel = labelTrimmed !== 'nan';
 ---
 
 *本报告记录了端口拓扑图修复的完整过程，为后续维护和类似问题处理提供参考。*
+
+---
+
+## 设备级拓扑增量修复（2025-11-06）
+
+### 背景
+- 用户反馈：设备级标准模式节点名称需两行显示；总线模式拖拽任一节点会导致整图移动，且初始布局呈“星形”不利于阅读。
+
+### 问题现象
+- 标准模式：节点标签包含 `<br/>` 时以字面量显示，不换行。
+- 总线模式：启用层级/物理引擎后再关闭，导致初始坐标不稳定；拖拽节点时常伴随整图视图移动。
+
+### 根因分析
+- vis-network 多行标签需要使用换行符 `\n` 而非 HTML `<br/>`。
+- 基于层级布局的稳定化坐标在物理关闭后缺乏确定性；交互配置未明确只拖节点、而非拖视图。
+
+### 修复方案
+1) 标签两行化：统一使用 `\n` 进行断行（遇到常见分隔符优先断）。
+2) 设备级总线布局：改为 BFS 分层 + 栅格坐标（LR），彻底关闭 `layout.hierarchical` 与 `physics`，只允许单节点拖拽。
+
+### 关键改动
+- `static/js/topology_device.js`
+  - 新增 `applyBusGridLayout(visData, centerId)`，按层分布并给出确定性坐标。
+  - 修改总线模式分支：`hierarchical.enabled=false`、`physics.enabled=false`、`interaction.dragNodes=true`、`edges.smooth.enabled=false`。
+  - `formatTwoLineLabel()` 改为插入 `\n`，并在 `toVisData()` 统一应用。
+
+### 验证
+- 预览页面：`/topology` → 设备级 → 切换“标准/总线”
+  - 标准：标签正常两行显示。
+  - 总线：初始布局为自左向右分层栅格；拖拽单个节点不会牵动其他节点或整图。
+
+### 风险与回退
+- 如需恢复层级自动布局：将总线模式改回 `layout.hierarchical.enabled=true` 并临时开启 `physics.enabled=true`，用于排查拥挤；排查后务必关闭。
+
+### 结论
+- 设备级两项修复已完成并通过本地验证，交互体验与可读性显著改善。

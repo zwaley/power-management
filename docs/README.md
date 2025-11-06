@@ -33,15 +33,16 @@
    pip install -r requirements.txt
 2) 启动开发服务器（已配置端口与主机回环）：
    python run.py
-   默认地址：http://127.0.0.1:18009
+   默认地址：http://127.0.0.1:8009
 
 关键页面与API
-- 设备列表：首页 /（设备管理与Excel导入）
-- 连接管理：/connections
+- 设备列表：首页 /（设备管理与Excel导入；设备名称与生产厂家筛选支持输入搜索 + 下拉选择）
+- 连接管理：/connections（设备名称筛选支持输入搜索 + 下拉选择）
 - 生命周期管理：/lifecycle-management
-- 拓扑页面：/graph（支持选择设备与过滤）
+- 拓扑页面：/topology（新页面，支持端口级/设备级/全局设备图切换）
 - 端口级拓扑数据：/api/port-topology/{device_id}
 - 设备级拓扑数据：/api/power-chain/{device_id}?level=device
+- 全局设备拓扑数据：/api/topology/global?station=&device_type=
 
 端口拓扑图说明（static/js/port_topology.js）
 - 标签统一清洗：通过 formatLabel 去下划线，在“机房”后换行，并为端口节点生成两行标签（位置/设备-端口）。
@@ -50,8 +51,8 @@
 - 交互：拖拽、悬停提示、双击详情、全屏开关、刷新与筛选。
 
 配置说明（config.py）
-- HOST：默认 127.0.0.1（避免防火墙拦截）
-- PORT：默认 18009（避免与已占用的 8009 冲突）
+- HOST：开发启动脚本使用 0.0.0.0；如遇防火墙限制可改为 127.0.0.1
+- PORT：默认 8009（可通过环境变量 PORT 覆盖）
 - ADMIN_PASSWORD、DATABASE_URL 可通过环境变量覆盖
 
 开发流程与规范
@@ -76,6 +77,6 @@
 - 增加统计图与报表导出（PDF/Excel）。
 
 迁移与隔离（Topology）
-- 新端口级页面：`/topology`（模板：`templates/topology.html`），与旧 `/graph` 彻底隔离。
+- 新页面：`/topology`（模板：`templates/topology.html`），与旧 `/graph` 彻底隔离。
 - 参考文档：`docs/拓扑图重构隔离与复用方案.md`、`docs/graph端口拓扑弃用与迁移指南.md`。
-- 新脚本占位：`static/js/topology_page.js`、`static/js/topology_ports.js`；页面不加载 `static/js/port_topology.js`。
+- 新脚本：`static/js/topology_page.js`、`static/js/topology_ports.js`、`static/js/topology_device.js`、`static/js/topology_global.js`；页面不加载 `static/js/port_topology.js`。

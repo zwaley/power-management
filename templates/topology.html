@@ -49,6 +49,7 @@
               <select id="level-select" class="form-select">
                 <option value="port" selected>端口级</option>
                 <option value="device">设备级</option>
+                <option value="global">全局设备图</option>
               </select>
             </div>
             <div class="mt-2">
@@ -83,6 +84,7 @@
   <script src="/static/js/topology_page.js"></script>
   <script src="/static/js/topology_device.js"></script>
   <script src="/static/js/topology_ports.js"></script>
+  <script src="/static/js/topology_global.js"></script>
   <script>
     if (window.TopologyPage && typeof window.TopologyPage.init === 'function') {
       window.TopologyPage.init();

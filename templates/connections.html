@@ -306,7 +306,11 @@
                             </div>
                             <div class="col-md-6">
                                 <label for="deviceNameFilter" class="form-label">设备名称：</label>
-                                <input type="text" class="form-control" id="deviceNameFilter" placeholder="输入设备名称（查找该设备的所有连接关系）" onblur="loadConnections()" onkeypress="if(event.key==='Enter') loadConnections()">
+                                <!-- 支持输入搜索 + 下拉选择的组合控件：HTML5 datalist -->
+<input type="text" class="form-control" id="deviceNameFilter" list="deviceNameOptions" placeholder="输入或选择设备名称（查找该设备的所有连接关系）" onfocus="prepareDeviceNamePicker()" onclick="prepareDeviceNamePicker()" oninput="debouncedLoadConnections()" onchange="loadConnections()" onblur="finalizeDeviceNameFilter()" onkeypress="if(event.key==='Enter') loadConnections()">
+                                <datalist id="deviceNameOptions">
+                                    <!-- 设备名称选项将由脚本在加载时填充 -->
+                                </datalist>
                             </div>
                             <div class="col-md-3 d-flex align-items-end">
                                 <button class="btn btn-outline-success me-2" onclick="loadConnections()">
@@ -725,6 +729,43 @@
             return typeMap[displayType] || [displayType];
         }
 
+        // 输入筛选防抖，避免频繁请求
+        let _loadConnTimer = null;
+        function debouncedLoadConnections(delay = 300) {
+            if (window.__suppressLoadConnectionsOnce) { window.__suppressLoadConnectionsOnce = false; return; }
+            if (_loadConnTimer) clearTimeout(_loadConnTimer);
+            _loadConnTimer = setTimeout(() => {
+                loadConnections();
+            }, delay);
+        }
+
+        // 聚焦时（仅当当前值与选项完全匹配）临时清空，保证下拉显示所有设备
+        function prepareDeviceNamePicker() {
+            const input = document.getElementById('deviceNameFilter');
+            const datalist = document.getElementById('deviceNameOptions');
+            if (!input || !datalist) return;
+            const current = (input.value || '').trim();
+            if (!current) return;
+            const exactMatch = Array.from(datalist.options).some(opt => (opt.value || '').trim() === current);
+            if (exactMatch) {
+                input.dataset.prevValue = current;
+                input.value = '';
+                // 抑制一次防抖触发，避免清空立即请求
+                window.__suppressLoadConnectionsOnce = true;
+            }
+        }
+
+        // 失焦时如未选择而为空，则恢复之前的值；随后执行筛选
+        function finalizeDeviceNameFilter() {
+            const input = document.getElementById('deviceNameFilter');
+            if (!input) return;
+            if ((input.value || '').trim() === '' && input.dataset.prevValue) {
+                input.value = input.dataset.prevValue;
+                delete input.dataset.prevValue;
+            }
+            loadConnections();
+        }
+
         // 加载连接列表
         async function loadConnections() {
             try {
@@ -918,6 +959,19 @@
                 });
                 
                 console.log(`已加载 ${allDevices.length} 个设备选项`);
+
+                // 填充设备名称datalist选项（用于筛选）
+                const deviceNameDatalist = document.getElementById('deviceNameOptions');
+                if (deviceNameDatalist) {
+                    deviceNameDatalist.innerHTML = '';
+                    allDevices.forEach(device => {
+                        const opt = document.createElement('option');
+                        opt.value = (device.name || device.device_name || '').trim();
+                        // 显示资产编号 + 设备名称，便于识别
+                        opt.textContent = `${(device.asset_id || '').trim()} - ${(device.name || '').trim()}`;
+                        deviceNameDatalist.appendChild(opt);
+                    });
+                }
                 
                 // 为设备选择器添加change事件监听
                 deviceASelect.addEventListener('change', function() {
